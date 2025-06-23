@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Generate JSON</title>
+</head>
+<body>
+  <button onclick="generateJSON()">Generate JSON</button>
+
+  <script>
+    function getRandomItem(arr) {
+      return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    function generateJSON() {
+      const firstNames = ["Priya", "Ravi", "Sneha", "Rahul", "Arjun", "Neha", "Karan", "Divya"];
+      const lastNames = ["Sharma", "Patel", "Verma", "Mehta", "Reddy", "Kapoor", "Malhotra", "Gupta", "Iyer", "Joshi"];
+
+      const users = [];
+
+      for (let i = 1; i <= 50000; i++) {
+        users.push({
+          id: i,
+          firstName: getRandomItem(firstNames),
+          lastName: getRandomItem(lastNames),
+          age: Math.floor(Math.random() * (65 - 18 + 1)) + 18,
+          salary: Math.floor(Math.random() * (120000 - 30000 + 1)) + 30000
+        });
+      }
+
+      const blob = new Blob([JSON.stringify(users, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'users.json';
+      a.click();
+
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>

@@ -243,8 +243,19 @@ filler.style.width = virtualWidth + "px";
     if (mouseX >= HEADER_SIZE && mouseY >= HEADER_SIZE) {
       const { col } = this.findColumnByOffset(x - HEADER_SIZE);
       const { row } = this.findRowByOffset(y - HEADER_SIZE);
-      this.selMgr.startDrag(row, col);
-      this.scheduleRender();
+      if (evt.button === 0) { // left click
+        // Always select the cell on mouse down
+        this.isMouseDown = true;
+        this.dragStartCell = { row, col };
+        this.selMgr.startDrag(row, col);
+        this.selMgr.selectCell(row, col);
+        this.scheduleRender();
+
+        // Start drag selection for left click + drag
+   
+      }
+      // Start drag selection if left mouse button is pressed
+   
     }
   }
 
@@ -268,10 +279,18 @@ filler.style.width = virtualWidth + "px";
     this.canvas.style.cursor = "cell";
     if (mouseY < HEADER_SIZE && mouseX >= HEADER_SIZE) {
       const { col, within } = this.findColumnByOffset(x - HEADER_SIZE);
-      if (within >= this.colMgr.getWidth(col) - RESIZE_GUTTER) this.canvas.style.cursor = "col-resize";
+      if (within >= this.colMgr.getWidth(col) - RESIZE_GUTTER) {
+        this.canvas.style.cursor = "col-resize";
+      } else {
+        this.canvas.style.cursor = "context-menu";
+      }
     } else if (mouseX < HEADER_SIZE && mouseY >= HEADER_SIZE) {
       const { row, within } = this.findRowByOffset(y - HEADER_SIZE);
-      if (within >= this.rowMgr.getHeight(row) - RESIZE_GUTTER) this.canvas.style.cursor = "row-resize";
+      if (within >= this.rowMgr.getHeight(row) - RESIZE_GUTTER) {
+        this.canvas.style.cursor = "row-resize";
+      } else {
+        this.canvas.style.cursor = "context-menu";
+      }
     }
 
     /* Drag‑to‑select update */
@@ -318,6 +337,7 @@ if (!this.selMgr.isDragging()) {
       this.updateEditorPosition();  
       this.scheduleRender();
     }
+
   }
 
   private onMouseUp(): void {
@@ -498,7 +518,7 @@ private updateEditorPosition(): void {
     }
     // Draw selection overlay BEFORE headers so headers cover selection
     this.selMgr.drawSelection(
-      this.ctx, this.rowMgr, this.colMgr, HEADER_SIZE, this.canvas.width, this.canvas.height, scrollX, scrollY,
+      this.ctx, this.rowMgr, this.colMgr, HEADER_SIZE, scrollX, scrollY
     );
     // Draw headers LAST so they are on top
     let x = HEADER_SIZE + this.colMgr.getX(firstCol) - scrollX;
@@ -553,22 +573,48 @@ private updateEditorPosition(): void {
 
     // Highlight if selected cell is in this header
     let highlight = false;
-    let highlightColor = "#000000";
+    let highlightColor = "#CAEAD8";
     let highlightText = "#107C41";
     const selectedCell = this.selMgr.getSelectedCell();
     if (selectedCell) {
       const { row, col } = selectedCell;
       if ((isColumn && col === index) || (!isColumn && row === index)) {
         highlight = true;
+        if (isColumn && col === index) {
+          console.log('Selected column header:', this.columnName(col));
+        }
+        if (!isColumn && row === index) {
+          console.log('Selected row header:', row + 1);
+        }
       }
+    }
+    // Highlight if the whole row is selected (row header only)
+    if (isColumn && this.selMgr.getSelectedRow() !== null) {
+      highlight = true;
+    }
+    if (!isColumn && this.selMgr.getSelectedRow() === index) {
+      highlight = true;
+    }
+    // Highlight if the whole column is selected (column header and all row headers)
+    if (isColumn && this.selMgr.getSelectedCol() === index) {
+      highlight = true;
+    }
+    if (!isColumn && this.selMgr.getSelectedCol() !== null) {
+      highlight = true;
     }
 
     // fill – subtle vertical gradient or highlight
     if (highlight) {
       ctx.fillStyle = highlightColor;
       ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = "#000000";
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, y + 0.5); // left
+      ctx.lineTo(x + 0.5, y + h - 0.5); // down left edge
+      ctx.lineTo(x + w - 0.5, y + h - 0.5); // right along bottom edge
+      ctx.stroke();
     } else {
-      const g = ctx.createLinearGradient(0, y, 0, y + h);
+     
     
       ctx.fillStyle = "#F5F5F5";
       ctx.fillRect(x, y, w, h);

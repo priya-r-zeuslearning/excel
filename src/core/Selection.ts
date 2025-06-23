@@ -114,30 +114,25 @@ export class SelectionManager {
     rowMgr: RowManager,
     colMgr: ColumnManager,
     HEADER_SIZE: number,
-    canvasWidth: number,
-    canvasHeight: number,
+    // canvasWidth: number,
+    // canvasHeight: number,
     scrollX = 0,
-    scrollY = 0,
-    colors?: {
-      rangeFill?: string;
-      rowColFill?: string;
-      activeFill?: string;
-      activeBorder?: string;
-    }
+    scrollY = 0
+ 
   ): void {
     ctx.save();
-    const rangeFill = colors?.rangeFill || "#dbeef3";
-    const rowColFill = colors?.rowColFill || "#e4ecf7";
-    const activeFill = colors?.activeFill || "#107C41";
-    const activeBorder = colors?.activeBorder || "#107C41";
+    // const rangeFill = colors?.rangeFill || "#dbeef3";
+    // const rowColFill = colors?.rowColFill || "#e4ecf7";
+    // const activeFill = colors?.activeFill || "#107C41";
+    // const activeBorder = colors?.activeBorder || "#107C41";
 
     // Highlight entire column (border only, full height)
     if (this.selectedCol !== null) {
       const col = this.selectedCol;
-      const x = Math.max(HEADER_SIZE, HEADER_SIZE + colMgr.getX(col) - scrollX);
+      const x = HEADER_SIZE + colMgr.getX(col) - scrollX;
       const w = colMgr.getWidth(col);
-      const y = HEADER_SIZE;
-      const h = rowMgr.getTotalHeight();
+      const y = 0;
+      const h = rowMgr.getTotalHeight() + HEADER_SIZE;
       ctx.save();
       ctx.strokeStyle = "#107C41";
       ctx.lineWidth = 2;
@@ -148,8 +143,8 @@ export class SelectionManager {
     // Highlight entire row (border only, full width)
     if (this.selectedRow !== null) {
       const row = this.selectedRow;
-      const x = HEADER_SIZE;
-      const y = Math.max(HEADER_SIZE, HEADER_SIZE + rowMgr.getY(row) - scrollY);
+      const x = HEADER_SIZE ;
+      const y = HEADER_SIZE + rowMgr.getY(row) - scrollY;
       const w = colMgr.getTotalWidth();
       const h = rowMgr.getHeight(row);
       ctx.save();
