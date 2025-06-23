@@ -8,7 +8,7 @@ export class DataImporter {
   }
 
   importFromJSON(data: any[][]): void {
-    this.grid.beginBatchUpdate(); // 🚀 disable intermediate renders
+    this.grid.beginBatchUpdate(); 
 
     for (let r = 0; r < data.length; r++) {
       const row = data[r];
@@ -18,7 +18,7 @@ export class DataImporter {
       }
     }
 
-    this.grid.endBatchUpdate(); // ✅ re-render once at the end
+    this.grid.endBatchUpdate(); 
     }
     
 }

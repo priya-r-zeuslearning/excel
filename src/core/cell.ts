@@ -1,34 +1,41 @@
 // src/core/Cell.ts
 
 /**
- * Represents a single cell in the grid.
+ * @class Cell
+ * @classdesc Represents a single cell in the grid, storing its value and state.
  */
 export class Cell {
-    /** Row index of the cell */
-    public row: number;
-  
-    /** Column index of the cell */
-    public col: number;
-  
-    /** Value stored in the cell */
-    public value: string;
-  
+    /** @type {number} The row index of the cell. */
+    private readonly row: number;
+    /** @type {number} The column index of the cell. */
+    private readonly col: number;
+    /** @type {string} The value stored in the cell. */
+    private value: string = "";
+
     /**
-     * Creates a new cell.
-     * @param row The row index
-     * @param col The column index
-     * @param value The value to store
+     * Initializes a Cell.
+     * @param {number} row The row index.
+     * @param {number} col The column index.
      */
-    constructor(row: number, col: number, value: string = "") {
-      this.row = row;
-      this.col = col;
-      this.value = value;
+    constructor(row: number, col: number) {
+        this.row = row;
+        this.col = col;
     }
-    getValue() {
+
+    /**
+     * Gets the value of the cell.
+     * @returns {string} The cell value.
+     */
+    getValue(): string {
         return this.value;
     }
-    setValue(value: string) {
+
+    /**
+     * Sets the value of the cell.
+     * @param {string} value The new value.
+     */
+    setValue(value: string): void {
         this.value = value;
     }
-  }
+}
   

@@ -1,29 +1,54 @@
 // src/core/RowManager.ts
 
 /**
- * Manages row heights and related operations.
+ * @class RowManager
+ * @classdesc Manages row heights and related operations for the grid.
  */
 export class RowManager {
-    /** Stores the height of each row */
+    /** @type {number[]} Stores the height of each row. */
     private rowHeights: number[] = [];
   
+    /**
+     * Initializes the RowManager.
+     * @param {number} rowCount The number of rows.
+     * @param {number} defaultHeight The default height for each row.
+     */
     constructor(rowCount: number, defaultHeight: number = 30) {
       for (let i = 0; i < rowCount; i++) {
         this.rowHeights.push(defaultHeight);
       }
     }
   
-    /** Get height of a row */
+    /**
+     * Gets the height of a row.
+     * @param {number} rowIndex The row index.
+     * @returns {number} The height of the row.
+     */
     getHeight(rowIndex: number): number {
       return this.rowHeights[rowIndex];
     }
-  
-    /** Set height of a row */
+    getTotalHeight(): number {
+      let total = 0;
+      for (let i = 0; i < this.rowHeights.length; i++) {
+        total += this.getHeight(i);
+      }
+      return total;
+    }
+    
+    /**
+     * Sets the height of a row.
+     * @param {number} rowIndex The row index.
+     * @param {number} height The new height.
+     */
     setHeight(rowIndex: number, height: number): void {
       this.rowHeights[rowIndex] = height;
     }
   
-    /** Get y-position of a row's top edge */
+    /**
+     * Gets the y-position of a row's top edge.
+     * @param {number} rowIndex The row index.
+     * @returns {number} The y-position.
+     */
     getY(rowIndex: number): number {
       let y = 0;
       for (let i = 0; i < rowIndex; i++) {
@@ -33,8 +58,8 @@ export class RowManager {
     }
   
     /** Get total height of all rows */
-    getTotalHeight(): number {
-      return this.rowHeights.reduce((a, b) => a + b, 0);
-    }
+    // getTotalHeight(): number {
+    //   return this.rowHeights.reduce((a, b) => a + b, 0);
+    // }
   }
   
