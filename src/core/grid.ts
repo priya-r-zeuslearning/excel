@@ -12,7 +12,7 @@ const DEFAULT_ROW_HEIGHT = 30;
 
 /** How many rows & columns we create (can be huge later) */
 const ROWS = 100_000;
-const COLS = 500;
+const COLS = 5000;
 
 /** How many extra rows / columns to draw outside the viewport */
 const RENDER_BUFFER_PX = 200;
@@ -21,7 +21,7 @@ const RENDER_BUFFER_PX = 200;
 const HEADER_SIZE = 40;
 
 /** How many pixels near an edge counts as a "resize hotspot" */
-const RESIZE_GUTTER = 3;
+const RESIZE_GUTTER = 5;
 
 /**
  * @class Grid
@@ -79,6 +79,10 @@ export class Grid {
     this.ctx = ctx;
 
     this.container = document.getElementById("canvas-container")!;
+    const dpr = window.devicePixelRatio || 1;
+canvas.width = canvas.clientWidth * dpr;
+canvas.height = canvas.clientHeight * dpr;
+ctx.scale(dpr, dpr);
 
     const fakeScrollDiv = document.createElement("div");
     fakeScrollDiv.style.height = ROWS * DEFAULT_ROW_HEIGHT + "px";
@@ -164,7 +168,7 @@ filler.style.width = virtualWidth + "px";
   /* ────────── Coordinate helpers ───────────────────────────────────── */
   /**
    * Returns mouse position **inside the grid's logical coord‑space**
-   * (i.e. including scroll offset, so 0,0 is the first data cell).
+   * 
    */
   private getMousePos(evt: MouseEvent): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
@@ -195,10 +199,14 @@ filler.style.width = virtualWidth + "px";
 
   /* ────────── Mouse handlers (selection / resize / edit) ───────────── */
   private onMouseDown(evt: MouseEvent): void {
+    // Use event offset for header hit-testing so header resize works when scrolled
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = evt.clientX - rect.left;
+    const mouseY = evt.clientY - rect.top;
     const { x, y } = this.getMousePos(evt);
 
-    /* 1️⃣ Header‑edge resize checks */
-    if (y < HEADER_SIZE) {
+    /* 1 Header‑edge resize checks */
+    if (mouseY < HEADER_SIZE) {
       const { col, within } = this.findColumnByOffset(x - HEADER_SIZE);
       if (within >= this.colMgr.getWidth(col) - RESIZE_GUTTER) {
         this.resizingCol = col;
@@ -207,7 +215,7 @@ filler.style.width = virtualWidth + "px";
         return;
       }
     }
-    if (x < HEADER_SIZE) {
+    if (mouseX < HEADER_SIZE) {
       const { row, within } = this.findRowByOffset(y - HEADER_SIZE);
       if (within >= this.rowMgr.getHeight(row) - RESIZE_GUTTER) {
         this.resizingRow = row;
@@ -217,22 +225,22 @@ filler.style.width = virtualWidth + "px";
       }
     }
 
-    /* 2️⃣ Header clicks – full row / column selection */
-    if (y < HEADER_SIZE && x >= HEADER_SIZE) {
+    /* 2 Header clicks – full row / column selection */
+    if (mouseY < HEADER_SIZE && mouseX >= HEADER_SIZE) {
       const { col } = this.findColumnByOffset(x - HEADER_SIZE);
       this.selMgr.selectColumn(col);
       this.scheduleRender();
       return;
     }
-    if (x < HEADER_SIZE && y >= HEADER_SIZE) {
+    if (mouseX < HEADER_SIZE && mouseY >= HEADER_SIZE) {
       const { row } = this.findRowByOffset(y - HEADER_SIZE);
       this.selMgr.selectRow(row);
       this.scheduleRender();
       return;
     }
 
-    /* 3️⃣ Inside grid – start drag selection (or single cell) */
-    if (x >= HEADER_SIZE && y >= HEADER_SIZE) {
+    /* 3 Inside grid – start drag selection (or single cell) */
+    if (mouseX >= HEADER_SIZE && mouseY >= HEADER_SIZE) {
       const { col } = this.findColumnByOffset(x - HEADER_SIZE);
       const { row } = this.findRowByOffset(y - HEADER_SIZE);
       this.selMgr.startDrag(row, col);
@@ -250,14 +258,18 @@ filler.style.width = virtualWidth + "px";
   }
 
   private onMouseMove(evt: MouseEvent): void {
+    // Use event offset for header hit-testing so header resize works when scrolled
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = evt.clientX - rect.left;
+    const mouseY = evt.clientY - rect.top;
     const { x, y } = this.getMousePos(evt);
 
     /* Cursor feedback for resize */
     this.canvas.style.cursor = "cell";
-    if (y < HEADER_SIZE && x >= HEADER_SIZE) {
+    if (mouseY < HEADER_SIZE && mouseX >= HEADER_SIZE) {
       const { col, within } = this.findColumnByOffset(x - HEADER_SIZE);
       if (within >= this.colMgr.getWidth(col) - RESIZE_GUTTER) this.canvas.style.cursor = "col-resize";
-    } else if (x < HEADER_SIZE && y >= HEADER_SIZE) {
+    } else if (mouseX < HEADER_SIZE && mouseY >= HEADER_SIZE) {
       const { row, within } = this.findRowByOffset(y - HEADER_SIZE);
       if (within >= this.rowMgr.getHeight(row) - RESIZE_GUTTER) this.canvas.style.cursor = "row-resize";
     }
@@ -333,6 +345,9 @@ if (!this.selMgr.isDragging()) {
     this.editorInput = document.createElement("input");
     this.editorInput.className = "cell-editor";   // ← uses the CSS above
     this.editorInput.type = "text";
+    this.editorInput.style.border = "none";
+    this.editorInput.style.outline = "none";
+    this.editorInput.style.backgroundColor="transparent !important";
     this.container.appendChild(this.editorInput);
   
     this.editorInput.addEventListener("blur", () => this.finishEditing(true));
@@ -342,7 +357,7 @@ if (!this.selMgr.isDragging()) {
     });
   }
   
-/** Keeps the edit box glued to its underlying cell. *//** Keeps the <input> perfectly aligned with its cell */
+
 private updateEditorPosition(): void {
   if (!this.editingCell || !this.editorInput) return;
 
@@ -355,9 +370,9 @@ private updateEditorPosition(): void {
 
   Object.assign(this.editorInput.style, {
     left : `${left + 2}px`,
-    top  : `${top  +56}px`,
-    width : `${this.colMgr.getWidth(col)  - 2}px`,
-    height: `${this.rowMgr.getHeight(row) - 2}px`,
+    top  : `${top  + 58}px`,
+    width : `${this.colMgr.getWidth(col)  - 4}px`,
+    height: `${this.rowMgr.getHeight(row) - 5}px`,
     display: "block"
   } as CSSStyleDeclaration);
 }
@@ -428,13 +443,64 @@ private updateEditorPosition(): void {
   }
 
   private render(): void {
-    this.canvas.width = this.container.clientWidth;
-    this.canvas.height = this.container.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    // Set canvas size in physical pixels for crisp lines
+    this.canvas.width = this.container.clientWidth * dpr;
+    this.canvas.height = this.container.clientHeight * dpr;
+    this.canvas.style.width = this.container.clientWidth + 'px';
+    this.canvas.style.height = this.container.clientHeight + 'px';
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0); // reset
+    this.ctx.scale(dpr, dpr);
     const scrollX = this.container.scrollLeft;
     const scrollY = this.container.scrollTop;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     const { firstRow, lastRow, firstCol, lastCol } = this.getVisibleRange();
-    // Draw headers
+    // Draw cells (only grid lines, not filled rectangles)
+    let yPos = HEADER_SIZE + this.rowMgr.getY(firstRow) - scrollY;
+    for (let r = firstRow; r <= lastRow; r++) {
+      const rowH = this.rowMgr.getHeight(r);
+      let xPos = HEADER_SIZE + this.colMgr.getX(firstCol) - scrollX;
+      for (let c = firstCol; c <= lastCol; c++) {
+        const colW = this.colMgr.getWidth(c);
+        // Draw cell text
+        this.ctx.fillStyle = "#222";
+        this.ctx.font = "13px 'Segoe UI', sans-serif";
+        this.ctx.textAlign = "left";
+        this.ctx.textBaseline = "middle";
+        const cellValue = this.getCell(r, c).getValue();
+        const clipped = this.clipText(cellValue, colW - 16);
+        this.ctx.fillText(clipped, xPos + 8, yPos + rowH / 2);
+        xPos += colW;
+      }
+      yPos += rowH;
+    }
+    // Draw vertical grid lines
+    let gridX = HEADER_SIZE + this.colMgr.getX(firstCol) - scrollX;
+    for (let c = firstCol; c <= lastCol + 1; c++) {
+      this.ctx.beginPath();
+      this.ctx.moveTo(gridX, HEADER_SIZE);
+      this.ctx.lineTo(gridX, this.canvas.height / dpr);
+      this.ctx.strokeStyle = "#d4d4d4";
+      this.ctx.lineWidth = 1 / dpr;
+      this.ctx.stroke();
+      if (c <= lastCol) gridX += this.colMgr.getWidth(c);
+    }
+    // Draw horizontal grid lines
+    let gridY = HEADER_SIZE + this.rowMgr.getY(firstRow) - scrollY;
+    for (let r = firstRow; r <= lastRow + 1; r++) {
+      this.ctx.beginPath();
+      this.ctx.moveTo(HEADER_SIZE, gridY);
+      this.ctx.lineTo(this.canvas.width / dpr, gridY);
+      this.ctx.strokeStyle = "#d4d4d4";
+      this.ctx.lineWidth = 1 / dpr;
+      this.ctx.stroke();
+      if (r <= lastRow) gridY += this.rowMgr.getHeight(r);
+    }
+    // Draw selection overlay BEFORE headers so headers cover selection
+    this.selMgr.drawSelection(
+      this.ctx, this.rowMgr, this.colMgr, HEADER_SIZE, this.canvas.width, this.canvas.height, scrollX, scrollY,
+    );
+    // Draw headers LAST so they are on top
     let x = HEADER_SIZE + this.colMgr.getX(firstCol) - scrollX;
     for (let c = firstCol; c <= lastCol; c++) {
       const w = this.colMgr.getWidth(c);
@@ -453,49 +519,6 @@ private updateEditorPosition(): void {
     this.ctx.strokeStyle = "#d4d4d4";
     this.ctx.lineWidth = 1;
     this.ctx.strokeRect(0, 0, HEADER_SIZE, HEADER_SIZE);
-    // Selection overlay
-    this.selMgr.drawSelection(
-      this.ctx, this.rowMgr, this.colMgr, HEADER_SIZE, this.canvas.width, this.canvas.height, scrollX, scrollY,
-     
-    );
-    // Draw cells (only grid lines, not filled rectangles)
-    let yPos = HEADER_SIZE + this.rowMgr.getY(firstRow) - scrollY;
-    for (let r = firstRow; r <= lastRow; r++) {
-      const rowH = this.rowMgr.getHeight(r);
-      let xPos = HEADER_SIZE + this.colMgr.getX(firstCol) - scrollX;
-      for (let c = firstCol; c <= lastCol; c++) {
-        const colW = this.colMgr.getWidth(c);
-        // Only fill if selected
-        const active = this.selMgr.getSelectedCell();
-        if (active && active.row === r && active.col === c) {
-          this.ctx.fillStyle = "#107C41";
-          this.ctx.fillRect(xPos, yPos, colW, rowH);
-          this.ctx.strokeStyle = "#107C41";
-          this.ctx.lineWidth = 2;
-          this.ctx.strokeRect(xPos, yPos, colW, rowH);
-        }
-        // Draw grid lines (not filled rects)
-        this.ctx.strokeStyle = "#d4d4d4";
-        this.ctx.lineWidth = 1;
-        this.ctx.beginPath();
-        this.ctx.moveTo(xPos, yPos);
-        this.ctx.lineTo(xPos + colW, yPos);
-        this.ctx.lineTo(xPos + colW, yPos + rowH);
-        this.ctx.lineTo(xPos, yPos + rowH);
-        this.ctx.lineTo(xPos, yPos);
-        this.ctx.stroke();
-        // Draw cell text
-        this.ctx.fillStyle = "#222";
-        this.ctx.font = "13px 'Segoe UI', sans-serif";
-        this.ctx.textAlign = "left";
-        this.ctx.textBaseline = "middle";
-        const cellValue = this.getCell(r, c).getValue();
-        const clipped = this.clipText(cellValue, colW - 16);
-        this.ctx.fillText(clipped, xPos + 8, yPos + rowH / 2);
-        xPos += colW;
-      }
-      yPos += rowH;
-    }
   }
 
   private clipText(text: string, maxWidth: number): string {
@@ -522,32 +545,56 @@ private updateEditorPosition(): void {
 
   private drawHeader(index: number, isColumn: boolean,
     pos: number, size: number): void {
-const ctx = this.ctx;
-const x = isColumn ? pos : 0;
-const y = isColumn ? 0 : pos;
-const w = isColumn ? size : HEADER_SIZE;
-const h = isColumn ? HEADER_SIZE : size;
+    const ctx = this.ctx;
+    const x = isColumn ? pos : 0;
+    const y = isColumn ? 0 : pos;
+    const w = isColumn ? size : HEADER_SIZE;
+    const h = isColumn ? HEADER_SIZE : size;
 
-/* fill – subtle vertical gradient ------------------------------- */
-const g = ctx.createLinearGradient(0, y, 0, y + h);
-g.addColorStop(0, "#f5f7fc");
-g.addColorStop(1, "#e9edf7");
-ctx.fillStyle = g;
-ctx.fillRect(x, y, w, h);
+    // Highlight if selected cell is in this header
+    let highlight = false;
+    let highlightColor = "#000000";
+    let highlightText = "#107C41";
+    const selectedCell = this.selMgr.getSelectedCell();
+    if (selectedCell) {
+      const { row, col } = selectedCell;
+      if ((isColumn && col === index) || (!isColumn && row === index)) {
+        highlight = true;
+      }
+    }
 
-/* outer border --------------------------------------------------- */
-ctx.strokeStyle = "#b7c6d5";
-ctx.lineWidth = 1;
-ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    // fill – subtle vertical gradient or highlight
+    if (highlight) {
+      ctx.fillStyle = highlightColor;
+      ctx.fillRect(x, y, w, h);
+    } else {
+      const g = ctx.createLinearGradient(0, y, 0, y + h);
+    
+      ctx.fillStyle = "#F5F5F5";
+      ctx.fillRect(x, y, w, h);
+    }
 
-/* text ----------------------------------------------------------- */
-ctx.fillStyle = "#000";
-ctx.font = "bold 12px Calibri, 'Segoe UI', sans-serif";
-ctx.textAlign = "center";
-ctx.textBaseline = "middle";
-const label = isColumn ? this.columnName(index) : (index + 1).toString();
-ctx.fillText(label, x + w / 2, y + h / 2);
-}
+    // outer border
+    ctx.strokeStyle = "#b7c6d5";
+    ctx.lineWidth = 1;
+    if (isColumn) {
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, y + 0.5); // left
+      ctx.lineTo(x + 0.5, y + h - 0.5); // down left edge
+      ctx.lineTo(x + w - 0.5, y + h - 0.5); // right along bottom edge
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    }
+
+    // text
+    ctx.fillStyle = highlight ? highlightText : "#616161";
+    ctx.font = " 14px Calibri, 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const label = isColumn ? this.columnName(index) : (index + 1).toString();
+    ctx.fillText(label, x + w / 2, y + h / 2);
+  }
 
   private columnName(idx: number): string {
     let name = "";

@@ -131,54 +131,60 @@ export class SelectionManager {
     const activeFill = colors?.activeFill || "#107C41";
     const activeBorder = colors?.activeBorder || "#107C41";
 
-    // Highlight entire column
+    // Highlight entire column (border only, full height)
     if (this.selectedCol !== null) {
       const col = this.selectedCol;
-      const x = HEADER_SIZE + colMgr.getX(col) - scrollX;
+      const x = Math.max(HEADER_SIZE, HEADER_SIZE + colMgr.getX(col) - scrollX);
       const w = colMgr.getWidth(col);
-      const y = HEADER_SIZE - scrollY;
-      const h = canvasHeight;
-      ctx.fillStyle = rowColFill;
-      ctx.fillRect(x, y, w, h);
+      const y = HEADER_SIZE;
+      const h = rowMgr.getTotalHeight();
+      ctx.save();
+      ctx.strokeStyle = "#107C41";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1, y, w - 2, h);
+      ctx.restore();
     }
 
-    // Highlight entire row
+    // Highlight entire row (border only, full width)
     if (this.selectedRow !== null) {
       const row = this.selectedRow;
-      const x = HEADER_SIZE - scrollX;
-      const y = HEADER_SIZE + rowMgr.getY(row) - scrollY;
-      const w = canvasWidth;
+      const x = HEADER_SIZE;
+      const y = Math.max(HEADER_SIZE, HEADER_SIZE + rowMgr.getY(row) - scrollY);
+      const w = colMgr.getTotalWidth();
       const h = rowMgr.getHeight(row);
-      ctx.fillStyle = rowColFill;
-      ctx.fillRect(x, y, w, h);
+      ctx.save();
+      ctx.strokeStyle = "#107C41";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y + 1, w, h - 2);
+      ctx.restore();
     }
 
-    // Drag rectangle (range selection)
+    // Drag rectangle (range selection, border only)
     const rect = this.getDragRect();
     if (rect) {
-      for (let r = rect.startRow; r <= rect.endRow; r++) {
-        const y = HEADER_SIZE + rowMgr.getY(r) - scrollY;
-        const h = rowMgr.getHeight(r);
-        let x = HEADER_SIZE + colMgr.getX(rect.startCol) - scrollX;
-        for (let c = rect.startCol; c <= rect.endCol; c++) {
-          const w = colMgr.getWidth(c);
-          ctx.fillStyle = rangeFill;
-          ctx.fillRect(x, y, w, h);
-          x += w;
-        }
-      }
+      let x1 = HEADER_SIZE + colMgr.getX(rect.startCol) - scrollX;
+      let y1 = HEADER_SIZE + rowMgr.getY(rect.startRow) - scrollY;
+      let x2 = HEADER_SIZE + colMgr.getX(rect.endCol) - scrollX + colMgr.getWidth(rect.endCol);
+      let y2 = HEADER_SIZE + rowMgr.getY(rect.endRow) - scrollY + rowMgr.getHeight(rect.endRow);
+      // Clamp to HEADER_SIZE so selection never goes into header
+      x1 = Math.max(x1, HEADER_SIZE);
+      y1 = Math.max(y1, HEADER_SIZE);
+      ctx.save();
+      ctx.strokeStyle = "#107C41";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x1 + 1, y1 + 1, x2 - x1 - 2, y2 - y1 - 2);
+      ctx.restore();
     }
 
-    // Selected cell border and fill (Excel style)
+    // Selected cell border only (Excel style, no fill)
     if (this.selectedCell) {
       const { row, col } = this.selectedCell;
-      const x = HEADER_SIZE + colMgr.getX(col) - scrollX;
-      const y = HEADER_SIZE + rowMgr.getY(row) - scrollY;
+      const x = Math.max(HEADER_SIZE, HEADER_SIZE + colMgr.getX(col) - scrollX);
+      const y = Math.max(HEADER_SIZE, HEADER_SIZE + rowMgr.getY(row) - scrollY);
       const w = colMgr.getWidth(col);
       const h = rowMgr.getHeight(row);
-      
       ctx.save();
-      ctx.strokeStyle = activeBorder;
+      ctx.strokeStyle = "#107C41";
       ctx.lineWidth = 3;
       ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
       ctx.restore();
