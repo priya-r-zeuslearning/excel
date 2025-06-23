@@ -174,8 +174,8 @@ export class SelectionManager {
     // Selected cell border only (Excel style, no fill)
     if (this.selectedCell) {
       const { row, col } = this.selectedCell;
-      const x = Math.max(HEADER_SIZE, HEADER_SIZE + colMgr.getX(col) - scrollX);
-      const y = Math.max(HEADER_SIZE, HEADER_SIZE + rowMgr.getY(row) - scrollY);
+      const x = HEADER_SIZE + colMgr.getX(col) - scrollX;
+      const y = HEADER_SIZE + rowMgr.getY(row) - scrollY;
       const w = colMgr.getWidth(col);
       const h = rowMgr.getHeight(row);
       ctx.save();
