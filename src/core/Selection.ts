@@ -28,6 +28,7 @@ export class SelectionManager {
   private dragStart: { row: number; col: number } | null = null;
   private dragEnd: { row: number; col: number } | null = null;
   private dragging = false;
+  private dragRect: DragRect | null = null; // Store the final drag rectangle
 
   public clear(): void {
     this.selectedCell = null;
@@ -36,6 +37,7 @@ export class SelectionManager {
     this.dragStart = null;
     this.dragEnd = null;
     this.dragging = false;
+    this.dragRect = null;
   }
 
   public isDragging(): boolean {
@@ -71,6 +73,15 @@ export class SelectionManager {
 
   public endDrag(): void {
     this.dragging = false;
+    // Keep the drag rectangle for header highlighting
+    if (this.dragStart && this.dragEnd) {
+      this.dragRect = {
+        startRow: Math.min(this.dragStart.row, this.dragEnd.row),
+        endRow: Math.max(this.dragStart.row, this.dragEnd.row),
+        startCol: Math.min(this.dragStart.col, this.dragEnd.col),
+        endCol: Math.max(this.dragStart.col, this.dragEnd.col),
+      };
+    }
   }
 
   public getSelectedCell() {
@@ -86,6 +97,12 @@ export class SelectionManager {
   }
 
   public getDragRect(): DragRect | null {
+    // Return the stored drag rectangle if not currently dragging
+    if (!this.dragging && this.dragRect) {
+      return this.dragRect;
+    }
+    
+    // Return current drag rectangle if dragging
     if (!this.dragStart || !this.dragEnd) return null;
     return {
       startRow: Math.min(this.dragStart.row, this.dragEnd.row),
@@ -135,8 +152,8 @@ export class SelectionManager {
       const h = rowMgr.getTotalHeight() + HEADER_SIZE;
       ctx.save();
       ctx.strokeStyle = "#107C41";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x + 1, y, w - 2, h);
+      ctx.lineWidth = 2/ window.devicePixelRatio;
+      ctx.strokeRect(x + 0.5, y, w - 1, h);
       ctx.restore();
     }
 
@@ -149,12 +166,12 @@ export class SelectionManager {
       const h = rowMgr.getHeight(row);
       ctx.save();
       ctx.strokeStyle = "#107C41";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x, y + 1, w, h - 2);
+      ctx.lineWidth = 2/window.devicePixelRatio;
+      ctx.strokeRect(x+0.5, y + .5, w +0.5, h - 0.5);
       ctx.restore();
     }
 
-    // Drag rectangle (range selection, border only)
+    // Drag rectangle (range selection, with fill and border)
     const rect = this.getDragRect();
     if (rect) {
       let x1 = HEADER_SIZE + colMgr.getX(rect.startCol) - scrollX;
@@ -164,10 +181,16 @@ export class SelectionManager {
       // Clamp to HEADER_SIZE so selection never goes into header
       x1 = Math.max(x1, HEADER_SIZE);
       y1 = Math.max(y1, HEADER_SIZE);
+      
       ctx.save();
+      // Draw fill
+      // ctx.fillStyle = "rgba(16, 124, 65, 0.1)"; // Light green fill
+      // ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+      
+      // Draw border
       ctx.strokeStyle = "#107C41";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x1 + 1, y1 + 1, x2 - x1 - 2, y2 - y1 - 2);
+      ctx.lineWidth = 3/window.devicePixelRatio;
+      ctx.strokeRect(x1 + 1, y1 + 1.5, x2 - x1 - 1, y2 - y1 - 1);
       ctx.restore();
     }
 
@@ -180,8 +203,8 @@ export class SelectionManager {
       const h = rowMgr.getHeight(row);
       ctx.save();
       ctx.strokeStyle = "#107C41";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
+      ctx.lineWidth = 3/window.devicePixelRatio;
+      ctx.strokeRect(x + 0.5, y + 0.5, w - 0.5, h - 0.5);
       ctx.restore();
     }
 

@@ -22,7 +22,7 @@ const HEADER_SIZE = 40;
 
 /** How many pixels near an edge counts as a "resize hotspot" */
 const RESIZE_GUTTER = 5;
-
+const dpr = window.devicePixelRatio || 1;
 /**
  * @class Grid
  * @classdesc Manages rendering, selection, editing, and resizing of a spreadsheet-like canvas grid.
@@ -55,6 +55,8 @@ export class Grid {
   private isMouseDown = false;
   /** @type {{row: number, col: number}|null} The cell where drag selection started. */
   private dragStartCell: { row: number; col: number } | null = null;
+  /** @type {{x: number, y: number}|null} The position where drag selection started. */
+  private dragStartMouse: { x: number; y: number } | null = null;
   /** @type {number|null} The column being resized, if any. */
   private resizingCol: number | null = null;
   /** @type {number|null} The row being resized, if any. */
@@ -79,23 +81,27 @@ export class Grid {
     this.ctx = ctx;
 
     this.container = document.getElementById("canvas-container")!;
-    const dpr = window.devicePixelRatio || 1;
-canvas.width = canvas.clientWidth * dpr;
-canvas.height = canvas.clientHeight * dpr;
-ctx.scale(dpr, dpr);
+
+    const rect = this.canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
 
     const fakeScrollDiv = document.createElement("div");
     fakeScrollDiv.style.height = ROWS * DEFAULT_ROW_HEIGHT + "px";
     fakeScrollDiv.style.width = COLS * DEFAULT_COL_WIDTH + "px";
     this.container.appendChild(fakeScrollDiv);
-    
 
-const filler = document.getElementById("scroll-filler")!;
+    const filler = document.getElementById("scroll-filler")!;
 
-
-
-    this.container.addEventListener("scroll", () => {this.updateEditorPosition();  this.scheduleRender()});
-    window.addEventListener("resize", () => {this.updateEditorPosition();  this.resizeCanvas()});
+    this.container.addEventListener("scroll", () => {
+      this.updateEditorPosition();
+      this.scheduleRender();
+    });
+    window.addEventListener("resize", () => {
+      this.updateEditorPosition();
+      this.resizeCanvas();
+    });
 
     this.rowMgr = new RowManager(ROWS, DEFAULT_ROW_HEIGHT);
     this.colMgr = new ColumnManager(COLS, DEFAULT_COL_WIDTH);
@@ -103,12 +109,13 @@ const filler = document.getElementById("scroll-filler")!;
     const virtualHeight = this.rowMgr.getTotalHeight();
     const virtualWidth = this.colMgr.getTotalWidth();
     filler.style.height = virtualHeight + "px";
-filler.style.width = virtualWidth + "px";
-
+    filler.style.width = virtualWidth + "px";
 
     this.initializeCells();
     this.addEventListeners();
     this.resizeCanvas();
+    // Log the number of created cells at startup
+    console.log("Cells created at startup:", this.countCreatedCells());
   }
 
   private resizeCanvas(): void {
@@ -168,7 +175,7 @@ filler.style.width = virtualWidth + "px";
   /* ────────── Coordinate helpers ───────────────────────────────────── */
   /**
    * Returns mouse position **inside the grid's logical coord‑space**
-   * 
+   *
    */
   private getMousePos(evt: MouseEvent): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
@@ -243,19 +250,16 @@ filler.style.width = virtualWidth + "px";
     if (mouseX >= HEADER_SIZE && mouseY >= HEADER_SIZE) {
       const { col } = this.findColumnByOffset(x - HEADER_SIZE);
       const { row } = this.findRowByOffset(y - HEADER_SIZE);
-      if (evt.button === 0) { // left click
-        // Always select the cell on mouse down
-        this.isMouseDown = true;
-        this.dragStartCell = { row, col };
-        this.selMgr.startDrag(row, col);
+      if (evt.button === 0) {
+        // left click
+        // Select cell immediately
         this.selMgr.selectCell(row, col);
         this.scheduleRender();
-
-        // Start drag selection for left click + drag
-   
+        // Prepare for possible drag selection
+        this.isMouseDown = true;
+        this.dragStartCell = { row, col };
+        this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
       }
-      // Start drag selection if left mouse button is pressed
-   
     }
   }
 
@@ -282,42 +286,62 @@ filler.style.width = virtualWidth + "px";
       if (within >= this.colMgr.getWidth(col) - RESIZE_GUTTER) {
         this.canvas.style.cursor = "col-resize";
       } else {
-        this.canvas.style.cursor = "context-menu";
+        this.canvas.style.cursor = "grab";
       }
     } else if (mouseX < HEADER_SIZE && mouseY >= HEADER_SIZE) {
       const { row, within } = this.findRowByOffset(y - HEADER_SIZE);
       if (within >= this.rowMgr.getHeight(row) - RESIZE_GUTTER) {
         this.canvas.style.cursor = "row-resize";
       } else {
-        this.canvas.style.cursor = "context-menu";
+        this.canvas.style.cursor = "grab";
       }
     }
 
     /* Drag‑to‑select update */
-    if (this.selMgr.isDragging() && x >= HEADER_SIZE && y >= HEADER_SIZE) {
-      const { col } = this.findColumnByOffset(x - HEADER_SIZE);
-      const { row } = this.findRowByOffset(y - HEADER_SIZE);
-      this.selMgr.updateDrag(row, col);
-      this.scheduleRender();
+    if (
+      this.isMouseDown &&
+      this.dragStartCell &&
+      x >= HEADER_SIZE &&
+      y >= HEADER_SIZE
+    ) {
+      // If not already dragging, check if mouse moved enough to start drag
+      if (!this.selMgr.isDragging() && this.dragStartMouse) {
+        const dx = Math.abs(evt.clientX - this.dragStartMouse.x);
+        const dy = Math.abs(evt.clientY - this.dragStartMouse.y);
+        if (dx > 2 || dy > 2) {
+          // threshold in pixels
+          this.selMgr.startDrag(this.dragStartCell.row, this.dragStartCell.col);
+        }
+      }
+      if (this.selMgr.isDragging()) {
+        const { col } = this.findColumnByOffset(x - HEADER_SIZE);
+        const { row } = this.findRowByOffset(y - HEADER_SIZE);
+        this.selMgr.updateDrag(row, col);
+        this.scheduleRender();
+      }
     }
-    /* Header hover tint ---------------------------------------------- */
-if (!this.selMgr.isDragging()) {
-  if (y < HEADER_SIZE && x >= HEADER_SIZE) {         // column header
-    this.scheduleRender();                           // ensure repaint
-    this.ctx.fillStyle = "rgba(173,205,255,0.25)";
-    const { col } = this.findColumnByOffset(x - HEADER_SIZE);
-    const hx = HEADER_SIZE + this.colMgr.getX(col) - scrollX;
-    this.ctx.fillRect(hx, 0, this.colMgr.getWidth(col), HEADER_SIZE);
-  }
-  if (x < HEADER_SIZE && y >= HEADER_SIZE) {         // row header
-    this.scheduleRender();
-    this.ctx.fillStyle = "rgba(173,205,255,0.25)";
-    const { row } = this.findRowByOffset(y - HEADER_SIZE);
-    const hy = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
-    this.ctx.fillRect(0, hy, HEADER_SIZE, this.rowMgr.getHeight(row));
-  }
-}
 
+    /* Header hover tint ---------------------------------------------- */
+    if (!this.selMgr.isDragging()) {
+      if (y < HEADER_SIZE && x >= HEADER_SIZE) {
+        // column header
+        this.scheduleRender(); // ensure repaint
+        this.ctx.fillStyle = "rgba(173,205,255,0.25)";
+        const { col } = this.findColumnByOffset(x - HEADER_SIZE);
+        const scrollX = this.container.scrollLeft;
+        const hx = HEADER_SIZE + this.colMgr.getX(col) - scrollX;
+        this.ctx.fillRect(hx, 0, this.colMgr.getWidth(col), HEADER_SIZE);
+      }
+      if (x < HEADER_SIZE && y >= HEADER_SIZE) {
+        // row header
+        this.scheduleRender();
+        this.ctx.fillStyle = "rgba(173,205,255,0.25)";
+        const { row } = this.findRowByOffset(y - HEADER_SIZE);
+        const scrollY = this.container.scrollTop;
+        const hy = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
+        this.ctx.fillRect(0, hy, HEADER_SIZE, this.rowMgr.getHeight(row));
+      }
+    }
   }
 
   private onMouseDrag(evt: MouseEvent): void {
@@ -326,7 +350,7 @@ if (!this.selMgr.isDragging()) {
       const dx = evt.clientX - this.dragStartX;
       const newW = Math.max(40, this.originalSize + dx);
       this.colMgr.setWidth(this.resizingCol, newW);
-      this.updateEditorPosition();  
+      this.updateEditorPosition();
       this.scheduleRender();
     }
     /* Row resize */
@@ -334,69 +358,110 @@ if (!this.selMgr.isDragging()) {
       const dy = evt.clientY - this.dragStartY;
       const newH = Math.max(20, this.originalSize + dy);
       this.rowMgr.setHeight(this.resizingRow, newH);
-      this.updateEditorPosition();  
+      this.updateEditorPosition();
       this.scheduleRender();
     }
-
   }
 
   private onMouseUp(): void {
     this.resizingCol = null;
     this.resizingRow = null;
-    this.selMgr.endDrag();
+    this.isMouseDown = false;
+    this.dragStartCell = null;
+    this.dragStartMouse = null;
+    // Finalize drag selection if we were dragging
+    if (this.selMgr.isDragging()) {
+      this.selMgr.endDrag();
+      this.scheduleRender();
+    }
   }
 
-  private onKeyDown(_e: KeyboardEvent): void {
-    /* arrow‑key navigation – future work */
+  private onKeyDown(e: KeyboardEvent): void {
+    // Only handle navigation if not editing a cell
+    if (this.editingCell) return;
+    const selected = this.selMgr.getSelectedCell();
+    if (!selected) return;
+    let { row, col } = selected;
+    let moved = false;
+    switch (e.key) {
+      case "ArrowRight":
+        if (col < COLS - 1) {
+          col++;
+          moved = true;
+        }
+        break;
+      case "ArrowLeft":
+        if (col > 0) {
+          col--;
+          moved = true;
+        }
+        break;
+      case "ArrowDown":
+        if (row < ROWS - 1) {
+          row++;
+          moved = true;
+        }
+        break;
+      case "ArrowUp":
+        if (row > 0) {
+          row--;
+          moved = true;
+        }
+        break;
+      default:
+        return;
+    }
+    if (moved) {
+      this.selMgr.selectCell(row, col);
+      this.scheduleRender();
+      e.preventDefault();
+    }
   }
 
   /* ────────── Editing overlay helpers ─────────────────────────────── */
-  private startEditingCell(row:number, col:number): void {
+  private startEditingCell(row: number, col: number): void {
     if (!this.editorInput) this.createEditorInput();
-  
+
     this.editingCell = { row, col };
-    this.editorInput!.value = this.getCell(row,col).getValue();
-    this.updateEditorPosition();        // ← single source of truth
+    this.editorInput!.value = this.getCell(row, col).getValue();
+    this.updateEditorPosition();
     this.editorInput!.focus();
   }
-  
 
   private createEditorInput(): void {
     this.editorInput = document.createElement("input");
-    this.editorInput.className = "cell-editor";   // ← uses the CSS above
+    this.editorInput.className = "cell-editor";
     this.editorInput.type = "text";
     this.editorInput.style.border = "none";
     this.editorInput.style.outline = "none";
-    this.editorInput.style.backgroundColor="transparent !important";
+    this.editorInput.style.backgroundColor = "transparent !important";
     this.container.appendChild(this.editorInput);
-  
+
     this.editorInput.addEventListener("blur", () => this.finishEditing(true));
     this.editorInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter")   this.finishEditing(true);
-      if (e.key === "Escape")  this.finishEditing(false);
+      if (e.key === "Enter") this.finishEditing(true);
+      if (e.key === "Escape") this.finishEditing(false);
     });
   }
-  
 
-private updateEditorPosition(): void {
-  if (!this.editingCell || !this.editorInput) return;
+  private updateEditorPosition(): void {
+    if (!this.editingCell || !this.editorInput) return;
 
-  const { row, col } = this.editingCell;
-  const scrollX = this.container.scrollLeft;
-  const scrollY = this.container.scrollTop;
+    const { row, col } = this.editingCell;
+    const scrollX = this.container.scrollLeft;
+    const scrollY = this.container.scrollTop;
 
-  const left = HEADER_SIZE + this.colMgr.getX(col) - scrollX;
-  const top  = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
+    const left = HEADER_SIZE + this.colMgr.getX(col) - scrollX;
+    const top = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
 
-  Object.assign(this.editorInput.style, {
-    left : `${left + 2}px`,
-    top  : `${top  + 58}px`,
-    width : `${this.colMgr.getWidth(col)  - 4}px`,
-    height: `${this.rowMgr.getHeight(row) - 5}px`,
-    display: "block"
-  } as CSSStyleDeclaration);
-}
-
+    Object.assign(this.editorInput.style, {
+      left: `${left + 3}px`,
+      top: `${top + 59}px`,
+      width: `${this.colMgr.getWidth(col) - 6}px`,
+      height: `${this.rowMgr.getHeight(row) - 6}px`,
+      display: "block",
+    } as CSSStyleDeclaration);
+  }
 
   private finishEditing(commit: boolean): void {
     if (!this.editorInput || !this.editingCell) return;
@@ -409,15 +474,18 @@ private updateEditorPosition(): void {
 
   /* ────────── Rendering ───────────────────────────────────────────── */
   private getVisibleRange(): {
-    firstRow: number; lastRow: number;
-    firstCol: number; lastCol: number;
+    firstRow: number;
+    lastRow: number;
+    firstCol: number;
+    lastCol: number;
   } {
     const scrollX = this.container.scrollLeft;
     const scrollY = this.container.scrollTop;
     const viewW = this.container.clientWidth;
     const viewH = this.container.clientHeight;
 
-    let firstRow = 0, lastRow = ROWS - 1;
+    let firstRow = 0,
+      lastRow = ROWS - 1;
     let y = 0;
     for (let r = 0; r < ROWS; r++) {
       const h = this.rowMgr.getHeight(r);
@@ -438,7 +506,8 @@ private updateEditorPosition(): void {
       rowY += h;
     }
 
-    let firstCol = 0, lastCol = COLS - 1;
+    let firstCol = 0,
+      lastCol = COLS - 1;
     let x = 0;
     for (let c = 0; c < COLS; c++) {
       const w = this.colMgr.getWidth(c);
@@ -467,8 +536,8 @@ private updateEditorPosition(): void {
     // Set canvas size in physical pixels for crisp lines
     this.canvas.width = this.container.clientWidth * dpr;
     this.canvas.height = this.container.clientHeight * dpr;
-    this.canvas.style.width = this.container.clientWidth + 'px';
-    this.canvas.style.height = this.container.clientHeight + 'px';
+    this.canvas.style.width = this.container.clientWidth + "px";
+    this.canvas.style.height = this.container.clientHeight + "px";
     this.ctx.setTransform(1, 0, 0, 1, 0, 0); // reset
     this.ctx.scale(dpr, dpr);
     const scrollX = this.container.scrollLeft;
@@ -518,7 +587,12 @@ private updateEditorPosition(): void {
     }
     // Draw selection overlay BEFORE headers so headers cover selection
     this.selMgr.drawSelection(
-      this.ctx, this.rowMgr, this.colMgr, HEADER_SIZE, scrollX, scrollY
+      this.ctx,
+      this.rowMgr,
+      this.colMgr,
+      HEADER_SIZE,
+      scrollX,
+      scrollY
     );
     // Draw headers LAST so they are on top
     let x = HEADER_SIZE + this.colMgr.getX(firstCol) - scrollX;
@@ -543,7 +617,10 @@ private updateEditorPosition(): void {
 
   private clipText(text: string, maxWidth: number): string {
     if (this.ctx.measureText(text).width <= maxWidth) return text;
-    while (text.length > 0 && this.ctx.measureText(text + "…").width > maxWidth) {
+    while (
+      text.length > 0 &&
+      this.ctx.measureText(text + "…").width > maxWidth
+    ) {
       text = text.slice(0, -1);
     }
     return text + "…";
@@ -563,83 +640,161 @@ private updateEditorPosition(): void {
     if (!this.suppressRender) this.scheduleRender();
   }
 
-  private drawHeader(index: number, isColumn: boolean,
-    pos: number, size: number): void {
+  private drawHeader(
+    index: number,
+    isColumn: boolean,
+    pos: number,
+    size: number
+  ): void {
     const ctx = this.ctx;
     const x = isColumn ? pos : 0;
     const y = isColumn ? 0 : pos;
-    const w = isColumn ? size : HEADER_SIZE;
+    let w = isColumn ? size : HEADER_SIZE;
     const h = isColumn ? HEADER_SIZE : size;
-
-    // Highlight if selected cell is in this header
+    ctx.font = " 14px Calibri, 'Segoe UI', sans-serif";
+    // Check if this header should be highlighted based on various selection states
     let highlight = false;
-    let highlightColor = "#CAEAD8";
+    let highlightColor = "#CAEAD8"; 
     let highlightText = "#107C41";
+
+    // Get current selection states
     const selectedCell = this.selMgr.getSelectedCell();
+    const selectedRow = this.selMgr.getSelectedRow();
+    const selectedCol = this.selMgr.getSelectedCol();
+    const dragRect = this.selMgr.getDragRect();
+
+    // Highlight if this header corresponds to a selected cell
     if (selectedCell) {
       const { row, col } = selectedCell;
       if ((isColumn && col === index) || (!isColumn && row === index)) {
         highlight = true;
-        if (isColumn && col === index) {
-          console.log('Selected column header:', this.columnName(col));
-        }
-        if (!isColumn && row === index) {
-          console.log('Selected row header:', row + 1);
-        }
+        ctx.fillStyle = highlightColor;
+        ctx.fillRect(x, y, w, h);
       }
     }
-    // Highlight if the whole row is selected (row header only)
+  if (index + 1 > 1000) { 
+      w = HEADER_SIZE + 5
+    }
+ 
+
+    // Highlight if this header corresponds to a selected row/column
+    if (isColumn && selectedCol === index) {
+      highlight = true;
+      ctx.fillStyle = highlightColor;
+      ctx.fillRect(x, y, w, h);
+    }
+    if (!isColumn && selectedRow === index) {
+      highlight = true;
+      ctx.fillStyle = highlightColor;
+      ctx.fillRect(x, y, w, h);
+    }
     if (isColumn && this.selMgr.getSelectedRow() !== null) {
       highlight = true;
+      ctx.fillStyle = highlightColor;
+      ctx.fillRect(x, y, w, h);
     }
     if (!isColumn && this.selMgr.getSelectedRow() === index) {
-      highlight = true;
+      ctx.fillStyle = "#107C41"; // green background
+      ctx.font = "bold 14px Calibri, 'Segoe UI', sans-serif";
+      ctx.fillRect(x, y, w, h);
+      highlightText = "#FFFFFF"; // white font
     }
     // Highlight if the whole column is selected (column header and all row headers)
     if (isColumn && this.selMgr.getSelectedCol() === index) {
-      highlight = true;
+      ctx.fillStyle = "#107C41"; // green background
+      ctx.font = "bold 14px Calibri, 'Segoe UI', sans-serif";
+      ctx.fillRect(x, y, w, h);
+      highlightText = "#FFFFFF"; // white font
     }
     if (!isColumn && this.selMgr.getSelectedCol() !== null) {
       highlight = true;
+      ctx.fillStyle = highlightColor;
+      ctx.fillRect(x, y, w, h);
+    }
+
+    // Highlight if this header is within a drag selection range
+    if (dragRect) {
+      if (isColumn) {
+        // For column headers, check if this column is within the drag range
+        if (index >= dragRect.startCol && index <= dragRect.endCol) {
+          highlight = true;
+          ctx.fillStyle = highlightColor;
+          ctx.fillRect(x, y, w, h);
+        }
+      } else {
+        // For row headers, check if this row is within the drag range
+        if (index >= dragRect.startRow && index <= dragRect.endRow) {
+          highlight = true;
+          ctx.fillStyle = highlightColor;
+          ctx.fillRect(x, y, w, h);
+        }
+      }
     }
 
     // fill – subtle vertical gradient or highlight
-    if (highlight) {
-      ctx.fillStyle = highlightColor;
-      ctx.fillRect(x, y, w, h);
-      ctx.strokeStyle = "#000000";
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, y + 0.5); // left
-      ctx.lineTo(x + 0.5, y + h - 0.5); // down left edge
-      ctx.lineTo(x + w - 0.5, y + h - 0.5); // right along bottom edge
-      ctx.stroke();
-    } else {
-     
-    
-      ctx.fillStyle = "#F5F5F5";
-      ctx.fillRect(x, y, w, h);
-    }
 
     // outer border
     ctx.strokeStyle = "#b7c6d5";
-    ctx.lineWidth = 1;
-    if (isColumn) {
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, y + 0.5); // left
-      ctx.lineTo(x + 0.5, y + h - 0.5); // down left edge
-      ctx.lineTo(x + w - 0.5, y + h - 0.5); // right along bottom edge
-      ctx.stroke();
-    } else {
-      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-    }
+    ctx.lineWidth = 1 / dpr;
 
+    if (highlight) {
+      ctx.save();
+      ctx.strokeStyle = "#107C41";
+      ctx.beginPath();
+      if (isColumn) {
+        // // Draw left border (thin)
+        // ctx.lineWidth = 1 / dpr;
+        // ctx.moveTo(x + 0.5, y);
+        // ctx.lineTo(x + 0.5, y + h - 0.5);
+
+        // // Draw right border (thin)
+        // ctx.moveTo(x + w - 0.5, y);
+        // ctx.lineTo(x + w - 0.5, y + h - 0.5);
+
+        // Draw bottom border (thick)
+        ctx.lineWidth = 2 / dpr;
+        ctx.moveTo(x, y + h - 0.5);
+        ctx.lineTo(x + w, y + h - 0.5);
+      } else {
+        // Row header: draw only green border at the right (no previous border)
+        ctx.lineWidth = 2 / dpr;
+        ctx.moveTo(x + w - 0.5, y);
+        ctx.lineTo(x + w - 0.5, y + h);
+      }
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "#F5F5F5";
+      ctx.fillRect(x, y, w, h);
+      if (isColumn) {
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, y + 0.5); // left
+        ctx.lineTo(x + 0.5, y + h - 0.5); // down left edge
+        ctx.lineTo(x + w - 0.5, y + h - 0.5); // right along bottom edge
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(x, y + h); // left bottom
+        if (index + 1 > 1000) {
+          ctx.lineTo(x + w + 5, y + h); // right bottom
+        } else {
+          ctx.lineTo(x + w, y + h); // right bottom
+        }
+        ctx.stroke();
+      }
+    }
+    if (!isColumn) {
+      ctx.fillStyle = "#f5f5f5";
+      
+    }
     // text
     ctx.fillStyle = highlight ? highlightText : "#616161";
-    ctx.font = " 14px Calibri, 'Segoe UI', sans-serif";
+
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     const label = isColumn ? this.columnName(index) : (index + 1).toString();
-    ctx.fillText(label, x + w / 2, y + h / 2);
+    ctx.fillText(label, x + w / 2, y + h / 2);  
+    
   }
 
   private columnName(idx: number): string {
@@ -650,5 +805,15 @@ private updateEditorPosition(): void {
       n = Math.floor(n / 26) - 1;
     } while (n >= 0);
     return name;
+  }
+
+  public countCreatedCells(): number {
+    let count = 0;
+    for (const row of this.cells) {
+      if (row) {
+        count += row.filter((cell) => cell !== undefined).length;
+      }
+    }
+    return count;
   }
 }

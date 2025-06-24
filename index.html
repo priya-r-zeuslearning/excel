@@ -1,91 +1,115 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sheet</title>
     <style>
-        body{
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #fcfcfc;
-        }
-        .header {
-            background-color: #f3f6fb;
-            padding: 10px 20px;
-            border-bottom: 1px solid #d4d4d4;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-        .header button {
-            padding: 7px 16px;
-            border: 1px solid #d4d4d4;
-            background-color: #f3f6fb;
-            border-radius: 0;
-            cursor: pointer;
-            font-size: 14px;
-            color: #222;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            transition: background 0.2s, border 0.2s;
-        }
-        .cell-editor{
-  position:fixed;
-  z-index:9999;             /* higher than the fixed canvas */
-  padding:0 2px;
-  border:none; /* Excel-blue outline */
-  background:#fff;
-  font:13px "Segoe UI", Tahoma, sans-serif;
-  box-sizing:border-box;
-}
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #fcfcfc;
+      }
+      .header {
+        background-color: #fff;
+        padding: 10px 20px;
+        border-bottom: 1px solid #d4d4d4;
+        display: flex;
+        gap: 10px;
+        width: calc(100% - 40px);
+        position: fixed;
+        align-items: center;
+      }
+      .header button {
+        padding: 7px 16px;
+        border: 1px solid #d4d4d4;
+        background-color: #217346;
+        border-radius: 0;
+        cursor: pointer;
+        font-size: 14px;
+        color: #fff;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        transition: background 0.2s, border 0.2s;
+      }
+      .cell-editor {
+        position: fixed;
+        z-index: 9999; /* higher than the fixed canvas */
+        padding: 0 2px;
+        border: none; /* Excel-blue outline */
+        background: #fff;
+        font: 13px "Segoe UI", Tahoma, sans-serif;
+        box-sizing: border-box;
+      }
+      #canvas-container {
+        position: absolute;
+        top: 56px;
+        left: 0;
+        bottom: 0;
+        right: 0;
 
-        .header button:hover {
-            background-color: #e4ecf7;
-            border-color: #217346;
-        }
-        .title {
-            font-size: 22px;
-            font-weight: 600;
-            margin-right: auto;
-            color: #217346;
-            letter-spacing: 1px;
-        }
-       
-            canvas {
-  position: absolute;
-  top: 40px;
+        width: 100%;
 
-  left: 0;
-}
+        height: calc(100vh - 56px);
+        overflow: auto;
+      }
+
+      .header button:hover {
+        background-color: #e4ecf7;
         
-     
-        /* Header cell hover effect for canvas headers */
-        .header-cell:hover {
-            background: #e4ecf7 !important;
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <div class="title">My Sheet</div>
-        <button id="fontSizeBtn">Font Size</button>
-        <button id="boldBtn">Bold</button>
-        <button id="italicBtn">Italic</button>
-        <button id="colorBtn">Color</button>
-        <button id="importBtn">Import</button>
-        <input type="file" id="fileInput" style="display: none;" accept=".json">
-    </div>
-    <div id="canvas-container"
-     style="position:relative; z-index:0;                /* NEW */
-            width:100vw; height:100vh; overflow:auto;">
+      }
+      .title {
+        font-size: 22px;
+        font-weight: 600;
+        margin-right: auto;
+        color: #217346;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+      }
 
-        <div id="scroll-filler" style="width: 1px; height: 1px;  overflow: auto; position: absolute; opacity: 0;"></div>
-        <canvas id="excelCanvas" style="position: fixed; top: 56px; left: 0; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: -webkit-optimize-contrast;"></canvas>
-       
+      canvas {
+        position: absolute;
+        top: 40px;
+
+        left: 0;
+      }
+
+      /* Header cell hover effect for canvas headers */
+      .header-cell:hover {
+        background: #e4ecf7 !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="title">Sheet</div>
+      <!-- <button id="fontSizeBtn">Font Size</button>
+      <button id="boldBtn">Bold</button>
+      <button id="italicBtn">Italic</button>
+      <button id="colorBtn">Color</button> -->
+      <button id="importBtn">Import</button>
+      <input type="file" id="fileInput" style="display: none" accept=".json" />
+    </div>
+    <div id="canvas-container">
+      <div
+        id="scroll-filler"
+        style="overflow: auto; position: absolute; opacity: 0"
+      ></div>
+      <canvas
+        id="excelCanvas"
+        style="
+          position: fixed;
+          top: 56px;
+          left: 0;
+          width: 100%;
+          height: calc(100vh - 56px);
+          image-rendering: pixelated;
+          image-rendering: -webkit-optimize-contrast;
+        "
+      ></canvas>
     </div>
     <script type="module" src="/src/main.ts"></script>
-</body>
+  </body>
 </html>

@@ -19,6 +19,7 @@ export class DataImporter {
     }
 
     this.grid.endBatchUpdate(); 
-    }
+    console.log('Cells created after import:', this.grid.countCreatedCells());
+  }
     
 }
