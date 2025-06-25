@@ -624,58 +624,106 @@ private editingCellInstance: Cell | null = null;
   private onKeyDown(e: KeyboardEvent): void {
     // Only handle navigation if not editing a cell
     if (this.editingCell) return;
+    //if any key is pressed while cell is seleted start editing but stop on enter or escape and support ctrl +z and ctrl +y
+    if (e.key === "Enter" || e.key === "Escape") {
+      this.finishEditing(true);
+      return;
+    }
     if (e.ctrlKey && e.key === "z") {
       e.preventDefault();
       this.commandManager.undo();
       this.scheduleRender();
       return;
     }
-
-    if ((e.ctrlKey && e.key === "y") || (e.ctrlKey && e.shiftKey && e.key === "z")) {
+    if (e.ctrlKey && e.key === "y") {
       e.preventDefault();
       this.commandManager.redo();
       this.scheduleRender();
+      return; 
+    }
+   
+ 
+    if(e.key === "Backspace"  )
+    {
+      if (this.selMgr.getSelectedRow() !== null) {
+        this.onDeleteRow();
+      } if (this.selMgr.getSelectedCol() !== null) {
+        this.onDeleteColumn();
+      }
+      // } if(this.selMgr.getSelectedCell() !== null)
+      // {
+      //   this.onDeleteCell();
+      // }
+      this.scheduleRender();
       return;
     }
-
-    const selected = this.selMgr.getSelectedCell();
-    if (!selected) return;
-    let { row, col } = selected;
-    let moved = false;
-    switch (e.key) {
-      case "ArrowRight":
-        if (col < COLS - 1) {
-          col++;
-          moved = true;
-        }
-        break;
-      case "ArrowLeft":
-        if (col > 0) {
-          col--;
-          moved = true;
-        }
-        break;
-      case "ArrowDown":
-        if (row < ROWS - 1) {
-          row++;
-          moved = true;
-        }
-        break;
-      case "ArrowUp":
-        if (row > 0) {
-          row--;
-          moved = true;
-        }
-        break;
-      default:
+    if(e.key === "Delete"  )
+    {
+      //if delete is pressed on dragged cells then delete all the cells/ contents 
+      if (this.selMgr.isDragging()) {
+        this.onDeleteRow();
+        this.onDeleteColumn();
+        this.scheduleRender();
         return;
-    }
-    if (moved) {
-      this.selMgr.selectCell(row, col);
+      }
+      if (this.selMgr.getSelectedRow() !== null) {
+        this.onDeleteRow();
+      } if (this.selMgr.getSelectedCol() !== null) {
+        this.onDeleteColumn();
+      }
       this.scheduleRender();
-      this.computeSelectionStats();
-      e.preventDefault();
+      return;
     }
+ 
+
+ 
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const selected = this.selMgr.getSelectedCell();
+      if (!selected) return;
+      let { row, col } = selected;
+      let moved = false;
+      switch (e.key) {
+        case "ArrowRight":
+          if (col < COLS - 1) {
+            col++;
+            e.preventDefault();
+            moved = true;
+        
+          }
+          break;
+        case "ArrowLeft":
+          if (col > 0) {
+            col--;
+            e.preventDefault();
+            moved = true;
+          }
+          break;
+        case "ArrowDown":
+          if (row < ROWS - 1) {
+            row++;
+            e.preventDefault();
+            moved = true;
+          }
+          break;
+        case "ArrowUp":
+          if (row > 0) {
+            row--;
+            e.preventDefault();
+            moved = true;
+          }
+          break;
+        default:
+          return;
+      }
+      if (moved) {
+        this.selMgr.selectCell(row, col);
+        this.scheduleRender();
+        this.computeSelectionStats();
+        
+      }
+    } 
+   
 
     this.computeSelectionStats();
     this.updateToolbarState();
