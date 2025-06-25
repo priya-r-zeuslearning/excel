@@ -3,113 +3,177 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sheet</title>
+    <title>Excel Clone</title>
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <!-- Material Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <style>
+      :root {
+        --header-height: 56px;
+        --primary-color: #217346;
+        --hover-color: #e4ecf7;
+        --font: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      }
       body {
         margin: 0;
         padding: 0;
         width: 100vw;
         height: 100vh;
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        background-color: #fcfcfc;
+        font-family: var(--font);
+        background: #fff;
+        overflow: hidden;
       }
       .header {
-        background-color: #fff;
-        padding: 10px 20px;
-        border-bottom: 1px solid #d4d4d4;
+        background: linear-gradient(90deg, var(--primary-color) 80%, #1d5c3d 100%);
+        padding: 0 24px;
         display: flex;
-        gap: 10px;
-        width: calc(100% - 40px);
+        gap: 12px;
+        width: calc(100vw - 40px);
         position: fixed;
+        top: 0;
+        z-index: 1000;
         align-items: center;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        height: var(--header-height);
+        min-height: var(--header-height);
+      }
+      .header .title {
+        font-size: 20px;
+        font-weight: 600;
+        margin-right: auto;
+        color: #fff;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        user-select: none;
       }
       .header button {
-        padding: 7px 16px;
-        border: 1px solid #d4d4d4;
-        background-color: #217346;
-        border-radius: 0;
-        cursor: pointer;
-        font-size: 14px;
-        color: #fff;
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        transition: background 0.2s, border 0.2s;
-      }
-      .cell-editor {
-        position: fixed;
-        z-index: 9999; /* higher than the fixed canvas */
-        padding: 0 2px;
-        border: none; /* Excel-blue outline */
+        padding: 6px 14px 6px 10px;
+        border: none;
         background: #fff;
-        font: 13px "Segoe UI", Tahoma, sans-serif;
-        box-sizing: border-box;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 15px;
+        color: var(--primary-color);
+        font-family: inherit;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        transition: background 0.2s, box-shadow 0.2s;
+      }
+      .header button:hover, .header button:focus {
+        background: #f1f1f1;
+        box-shadow: 0 2px 6px rgba(33,115,70,0.08);
+        outline: none;
+      }
+      .header input[type="text"] {
+        padding: 6px 12px;
+        font-size: 15px;
+        border: 1px solid #d0d7de;
+        border-radius: 4px;
+        width: 220px;
+        background: #f8fafc;
+        transition: border 0.2s;
+      }
+      .header input[type="text"]:focus {
+        border: 1.5px solid var(--primary-color);
+        outline: none;
+      }
+      .summary-bar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100vw;
+        padding: 10px 24px;
+        font-size: 15px;
+        color: #217346;
+        background: #f3f6fb;
+        border-top: 1px solid #e0e0e0;
+        box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
+        z-index: 1001;
+        letter-spacing: 0.5px;
+        display: flex;
+        align-items: center;
+        gap: 24px;
       }
       #canvas-container {
         position: absolute;
-        top: 56px;
+        top: var(--header-height);
         left: 0;
-        bottom: 0;
         right: 0;
-
-        width: 100%;
-
-        height: calc(100vh - 56px);
+        bottom: 0;
         overflow: auto;
+        width: 100vw;
+        height: calc(100vh - var(--header-height) - 44px);
+        /* 44px = summary bar height + padding */
       }
-
-      .header button:hover {
-        background-color: #e4ecf7;
-        
-      }
-      .title {
-        font-size: 22px;
-        font-weight: 600;
-        margin-right: auto;
-        color: #217346;
-        letter-spacing: 3px;
-        text-transform: uppercase;
-      }
-
       canvas {
         position: absolute;
-        top: 40px;
-
+        top: var(--header-height);
         left: 0;
+        width: 100vw;
+        height: calc(100vh - var(--header-height) - 44px);
+        image-rendering: pixelated;
+        image-rendering: -webkit-optimize-contrast;
       }
-
-      /* Header cell hover effect for canvas headers */
-      .header-cell:hover {
-        background: #e4ecf7 !important;
+      .cell-editor {
+        position: fixed;
+        z-index: 9999;
+        padding: 0 2px;
+        /* border: 1px solid #999; */
+        background: #fff;
+        /* font: 13px var(--font); */
+        box-sizing: border-box;
+        /* box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); */
+      }
+      @media (max-width: 600px) {
+        .header {
+          flex-wrap: wrap;
+          padding: 0 8px;
+        }
+        .summary-bar {
+          font-size: 13px;
+          padding: 8px 8px;
+        }
+        .header input[type="text"] {
+          width: 120px;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="header">
-      <div class="title">Sheet</div>
-      <!-- <button id="fontSizeBtn">Font Size</button>
-      <button id="boldBtn">Bold</button>
-      <button id="italicBtn">Italic</button>
-      <button id="colorBtn">Color</button> -->
-      <button id="importBtn">Import</button>
+    <div class="header" role="banner">
+      <div class="title" aria-label="Sheet Title">Sheets</div>
+      <input type="text" id="searchInput" placeholder="Search..." aria-label="Search" tabindex="1" />
+      <button id="undoBtn" aria-label="Undo" tabindex="2"><span class="material-icons" aria-hidden="true">undo</span>Undo</button>
+      <button id="redoBtn" aria-label="Redo" tabindex="3"><span class="material-icons" aria-hidden="true">redo</span>Redo</button>
+      <button id="importBtn" aria-label="Import" tabindex="4"><span class="material-icons" aria-hidden="true">upload_file</span>Import</button>
       <input type="file" id="fileInput" style="display: none" accept=".json" />
     </div>
+
     <div id="canvas-container">
-      <div
-        id="scroll-filler"
-        style="overflow: auto; position: absolute; opacity: 0"
-      ></div>
+      <div id="scroll-filler" style="overflow: auto; position: absolute; opacity: 0"></div>
       <canvas
         id="excelCanvas"
         style="
           position: fixed;
-          top: 56px;
+          top: var(--header-height);
           left: 0;
-          width: 100%;
-          height: calc(100vh - 56px);
-          image-rendering: pixelated;
-          image-rendering: -webkit-optimize-contrast;
+          width: 100vw;
+          height: calc(100vh - var(--header-height) - 44px);
         "
+        tabindex="5"
+        aria-label="Spreadsheet Canvas"
       ></canvas>
     </div>
+
+    <div class="summary-bar" id="summaryBar" role="status">
+      <span><strong>SUM:</strong> 0</span>
+      <span><strong>COUNT:</strong> 0</span>
+      <span><strong>AVERAGE:</strong> 0</span>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

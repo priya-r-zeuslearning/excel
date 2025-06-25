@@ -6,9 +6,9 @@
  */
 export class Cell {
     /** @type {number} The row index of the cell. */
-    private readonly row: number;
+    public readonly row: number;
     /** @type {number} The column index of the cell. */
-    private readonly col: number;
+    public readonly col: number;
     /** @type {string} The value stored in the cell. */
     private value: string = "";
 

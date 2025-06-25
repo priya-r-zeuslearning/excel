@@ -13,8 +13,11 @@ export class DataImporter {
     for (let r = 0; r < data.length; r++) {
       const row = data[r];
       for (let c = 0; c < row.length; c++) {
-        const value = row[c];
-        this.grid.setCellValue(r, c, String(value ?? ""));
+     
+        const rawValue = row[c];
+        if (rawValue !== null && rawValue !== undefined && rawValue !== "") {
+          this.grid.setCellValue(r, c, String(rawValue));
+        }
       }
     }
 

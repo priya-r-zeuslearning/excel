@@ -152,7 +152,7 @@ export class SelectionManager {
       const h = rowMgr.getTotalHeight() + HEADER_SIZE;
       ctx.save();
       ctx.strokeStyle = "#107C41";
-      ctx.lineWidth = 2/ window.devicePixelRatio;
+      ctx.lineWidth = 1/ window.devicePixelRatio;
       ctx.strokeRect(x + 0.5, y, w - 1, h);
       ctx.restore();
     }
@@ -166,7 +166,7 @@ export class SelectionManager {
       const h = rowMgr.getHeight(row);
       ctx.save();
       ctx.strokeStyle = "#107C41";
-      ctx.lineWidth = 2/window.devicePixelRatio;
+      ctx.lineWidth = 1/window.devicePixelRatio;
       ctx.strokeRect(x+0.5, y + .5, w +0.5, h - 0.5);
       ctx.restore();
     }
@@ -189,7 +189,7 @@ export class SelectionManager {
       
       // Draw border
       ctx.strokeStyle = "#107C41";
-      ctx.lineWidth = 3/window.devicePixelRatio;
+      ctx.lineWidth = 2/window.devicePixelRatio;
       ctx.strokeRect(x1 + 1, y1 + 1.5, x2 - x1 - 1, y2 - y1 - 1);
       ctx.restore();
     }
