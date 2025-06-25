@@ -40,6 +40,10 @@ export class SelectionManager {
     this.dragRect = null;
   }
 
+  public clearSelection(): void {
+    this.clear();
+  }
+
   public isDragging(): boolean {
     return this.dragging;
   }
@@ -152,6 +156,8 @@ export class SelectionManager {
       const h = rowMgr.getTotalHeight() + HEADER_SIZE;
       ctx.save();
       ctx.strokeStyle = "#107C41";
+      ctx.fillStyle = "#107C410a";
+      ctx.fillRect(x + 0.5, y, w - 1, h);
       ctx.lineWidth = 1/ window.devicePixelRatio;
       ctx.strokeRect(x + 0.5, y, w - 1, h);
       ctx.restore();
@@ -166,6 +172,8 @@ export class SelectionManager {
       const h = rowMgr.getHeight(row);
       ctx.save();
       ctx.strokeStyle = "#107C41";
+      ctx.fillStyle = "#107C410a";
+      ctx.fillRect(x + 0.5, y + 0.5, w - 1, h - 1);
       ctx.lineWidth = 1/window.devicePixelRatio;
       ctx.strokeRect(x+0.5, y + .5, w +0.5, h - 0.5);
       ctx.restore();
@@ -186,9 +194,11 @@ export class SelectionManager {
       // Draw fill
       // ctx.fillStyle = "rgba(16, 124, 65, 0.1)"; // Light green fill
       // ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-      
+      ctx.fillStyle = "#107C410a";
+      ctx.fillRect(x1 + 0.5, y1 + 0.5, x2 - x1 - 1, y2 - y1 - 1);
       // Draw border
       ctx.strokeStyle = "#107C41";
+
       ctx.lineWidth = 2/window.devicePixelRatio;
       ctx.strokeRect(x1 + 1, y1 + 1.5, x2 - x1 - 1, y2 - y1 - 1);
       ctx.restore();
@@ -203,7 +213,8 @@ export class SelectionManager {
       const h = rowMgr.getHeight(row);
       ctx.save();
       ctx.strokeStyle = "#107C41";
-      ctx.lineWidth = 3/window.devicePixelRatio;
+      ctx.lineWidth = 3 / window.devicePixelRatio;
+ 
       ctx.strokeRect(x + 0.5, y + 0.5, w - 0.5, h - 0.5);
       ctx.restore();
     }

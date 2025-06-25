@@ -56,6 +56,24 @@ export class RowManager {
       }
       return y;
     }
+
+    /**
+     * Inserts a new row at the specified index.
+     * @param {number} rowIndex The index where to insert the new row.
+     */
+    insertRow(rowIndex: number): void {
+      this.rowHeights.splice(rowIndex, 0, 30); // Default height of 30
+    }
+
+    /**
+     * Deletes a row at the specified index.
+     * @param {number} rowIndex The index of the row to delete.
+     */
+    deleteRow(rowIndex: number): void {
+      if (rowIndex >= 0 && rowIndex < this.rowHeights.length) {
+        this.rowHeights.splice(rowIndex, 1);
+      }
+    }
   
     /** Get total height of all rows */
     // getTotalHeight(): number {

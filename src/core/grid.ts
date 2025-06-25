@@ -7,6 +7,9 @@ import { CommandManager } from "../commands/CommandManager";
 import { EditCellCommand } from "../commands/EditCellCommand";
 import { ResizeColumnCommand } from "../commands/ResizeColumnCommand";
 import { ResizeRowCommand } from "../commands/ResizeRowCommand";
+import { FontSizeCommand } from "../commands/FontSizeCommand";
+import { BoldCommand } from "../commands/BoldCommand";
+import { ItalicCommand } from "../commands/ItalicCommand";
 import { Aggregator } from './Aggregator';
 
 /**
@@ -194,6 +197,24 @@ private editingCellInstance: Cell | null = null;
     undoButton.addEventListener("click", this.onUndo.bind(this));
     const redoButton = document.getElementById("redoBtn")!;
     redoButton.addEventListener("click", this.onRedo.bind(this));
+    
+    // Toolbar buttons
+    const insertRowBtn = document.getElementById("insertRowBtn")!;
+    insertRowBtn.addEventListener("click", this.onInsertRow.bind(this));
+    const insertColBtn = document.getElementById("insertColBtn")!;
+    insertColBtn.addEventListener("click", this.onInsertColumn.bind(this));
+    const deleteRowBtn = document.getElementById("deleteRowBtn")!;
+    deleteRowBtn.addEventListener("click", this.onDeleteRow.bind(this));
+    const deleteColBtn = document.getElementById("deleteColBtn")!;
+    deleteColBtn.addEventListener("click", this.onDeleteColumn.bind(this));
+    
+    // Font controls
+    const fontSizeSelect = document.getElementById("fontSizeSelect") as HTMLSelectElement;
+    fontSizeSelect.addEventListener("change", this.onFontSizeChange.bind(this));
+    const boldBtn = document.getElementById("boldBtn")!;
+    boldBtn.addEventListener("click", this.onBoldToggle.bind(this));
+    const italicBtn = document.getElementById("italicBtn")!;
+    italicBtn.addEventListener("click", this.onItalicToggle.bind(this));
   }
 
   private onUndo(): void {
@@ -204,6 +225,178 @@ private editingCellInstance: Cell | null = null;
   private onRedo(): void {
     this.commandManager.redo();
     this.scheduleRender();
+  }
+
+  private onInsertRow(): void {
+    const selectedRow = this.selMgr.getSelectedRow();
+    const selectedCell = this.selMgr.getSelectedCell();
+    const insertAt = selectedRow !== null ? selectedRow : (selectedCell ? selectedCell.row : 0);
+    
+    // Insert a new row at the selected position
+    this.rowMgr.insertRow(insertAt);
+    
+    // Shift cells down
+    this.shiftCellsDown(insertAt);
+    
+    this.scheduleRender();
+  }
+
+  private onInsertColumn(): void {
+    const selectedCol = this.selMgr.getSelectedCol();
+    const selectedCell = this.selMgr.getSelectedCell();
+    const insertAt = selectedCol !== null ? selectedCol : (selectedCell ? selectedCell.col : 0);
+    
+    // Insert a new column at the selected position
+    this.colMgr.insertColumn(insertAt);
+    
+    // Shift cells right
+    this.shiftCellsRight(insertAt);
+    
+    this.scheduleRender();
+  }
+
+  private onDeleteRow(): void {
+    const selectedRow = this.selMgr.getSelectedRow();
+    
+    // Only delete if a row is specifically selected
+    if (selectedRow === null) {
+      return;
+    }
+    
+    // Ask for confirmation
+    const confirmed = confirm(`Are you sure you want to delete row ${selectedRow + 1}?`);
+    if (!confirmed) {
+      return;
+    }
+    
+    if (selectedRow >= 0 && selectedRow < ROWS) {
+      // Remove the row
+      this.rowMgr.deleteRow(selectedRow);
+      
+      // Shift cells up
+      this.shiftCellsUp(selectedRow);
+      
+      // Clear selection
+      this.selMgr.clearSelection();
+      
+      this.scheduleRender();
+    }
+  }
+
+  private onDeleteColumn(): void {
+    const selectedCol = this.selMgr.getSelectedCol();
+    const selectedCell = this.selMgr.getSelectedCell();
+    if (selectedCol === null) {
+      return;
+    }
+    const deleteAt = selectedCol !== null ? selectedCol : (selectedCell ? selectedCell.col : 0);
+    const confirmed = confirm(`Are you sure you want to delete column ${deleteAt + 1}?`);
+    if (!confirmed) {
+      return;
+    }
+    if (deleteAt >= 0 && deleteAt < COLS) {
+      // Remove the column
+      this.colMgr.deleteColumn(deleteAt);
+      
+      // Shift cells left
+      this.shiftCellsLeft(deleteAt);
+      
+      // Clear selection
+      this.selMgr.clearSelection();
+      
+      this.scheduleRender();
+    }
+  }
+
+  private shiftCellsDown(insertAt: number): void {
+    // Move all cells from insertAt onwards down by one row
+    for (let row = ROWS - 2; row >= insertAt; row--) {
+      const rowMap = this.cells.get(row);
+      if (rowMap) {
+        const newRowMap = new Map();
+        for (const [col, cell] of rowMap) {
+          const newCell = new Cell(row + 1, col);
+          newCell.setValue(cell.getValue());
+          newRowMap.set(col, newCell);
+        }
+        this.cells.set(row + 1, newRowMap);
+      }
+    }
+    // Clear the inserted row
+    this.cells.delete(insertAt);
+  }
+
+  private shiftCellsRight(insertAt: number): void {
+    // Move all cells from insertAt onwards right by one column
+    for (const rowMap of this.cells.values()) {
+      const newRowMap = new Map();
+      for (let col = COLS - 2; col >= insertAt; col--) {
+        const cell = rowMap.get(col);
+        if (cell) {
+          const newCell = new Cell(cell.row, col + 1);
+          newCell.setValue(cell.getValue());
+          newRowMap.set(col + 1, newCell);
+        }
+      }
+      // Copy cells before insertAt
+      for (let col = 0; col < insertAt; col++) {
+        const cell = rowMap.get(col);
+        if (cell) {
+          newRowMap.set(col, cell);
+        }
+      }
+      // Clear the original rowMap and set the new one
+      rowMap.clear();
+      for (const [col, cell] of newRowMap) {
+        rowMap.set(col, cell);
+      }
+    }
+  }
+
+  private shiftCellsUp(deleteAt: number): void {
+    // Move all cells from deleteAt + 1 onwards up by one row
+    for (let row = deleteAt; row < ROWS - 1; row++) {
+      const rowMap = this.cells.get(row + 1);
+      if (rowMap) {
+        const newRowMap = new Map();
+        for (const [col, cell] of rowMap) {
+          const newCell = new Cell(row, col);
+          newCell.setValue(cell.getValue());
+          newRowMap.set(col, newCell);
+        }
+        this.cells.set(row, newRowMap);
+      } else {
+        this.cells.delete(row);
+      }
+    }
+    // Clear the last row
+    this.cells.delete(ROWS - 1);
+  }
+
+  private shiftCellsLeft(deleteAt: number): void {
+    // Move all cells from deleteAt + 1 onwards left by one column
+    for (const rowMap of this.cells.values()) {
+      const newRowMap = new Map();
+      for (let col = 0; col < deleteAt; col++) {
+        const cell = rowMap.get(col);
+        if (cell) {
+          newRowMap.set(col, cell);
+        }
+      }
+      for (let col = deleteAt + 1; col < COLS; col++) {
+        const cell = rowMap.get(col);
+        if (cell) {
+          const newCell = new Cell(cell.row, col - 1);
+          newCell.setValue(cell.getValue());
+          newRowMap.set(col - 1, newCell);
+        }
+      }
+      // Clear the original rowMap and set the new one
+      rowMap.clear();
+      for (const [col, cell] of newRowMap) {
+        rowMap.set(col, cell);
+      }
+    }
   }
 
   /* ────────── Coordinate helpers ────────────────────────────────{ x: number; y: number } {
@@ -252,7 +445,7 @@ private editingCellInstance: Cell | null = null;
         this.currentResizeCommand = new ResizeColumnCommand(this, this.resizingCol, this.originalSize, this.originalSize);
         this.ctx.strokeStyle = "#107C41";
         this.ctx.lineWidth = 2 / dpr;
-        this.ctx.strokeRect(x, y, this.colMgr.getWidth(col), HEADER_SIZE);
+      
         return;
       }
     }
@@ -299,6 +492,7 @@ private editingCellInstance: Cell | null = null;
     }
 
     this.computeSelectionStats();
+    this.updateToolbarState();
   }
 
   private onDoubleClick(evt: MouseEvent): void {
@@ -424,6 +618,7 @@ private editingCellInstance: Cell | null = null;
     }
 
     this.computeSelectionStats();
+    this.updateToolbarState();
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -483,6 +678,7 @@ private editingCellInstance: Cell | null = null;
     }
 
     this.computeSelectionStats();
+    this.updateToolbarState();
   }
 
   /* ────────── Editing overlay helpers ─────────────────────────────── */
@@ -505,6 +701,11 @@ private editingCellInstance: Cell | null = null;
     this.editorInput.type = "text";
     this.editorInput.style.border = "none";
     this.editorInput.style.outline = "none";
+    this.editorInput.style.fontSize = "14px";
+    this.editorInput.style.fontFamily = "Arial, sans-serif";
+    this.editorInput.style.color = "#222";
+    this.editorInput.style.textAlign = "left";
+    this.editorInput.style.padding = "5px";
     this.editorInput.style.backgroundColor = "transparent !important";
     this.container.appendChild(this.editorInput);
 
@@ -527,7 +728,7 @@ private editingCellInstance: Cell | null = null;
 
     Object.assign(this.editorInput.style, {
       left: `${left + 3}px`,
-      top: `${top + 59}px`,
+      top: `${top + 106}px`,
       width: `${this.colMgr.getWidth(col) - 6}px`,
       height: `${this.rowMgr.getHeight(row) - 6}px`,
       display: "block",
@@ -639,7 +840,27 @@ private editingCellInstance: Cell | null = null;
         const colW = this.colMgr.getWidth(c);
         // Draw cell text
         this.ctx.fillStyle = "#222";
-        this.ctx.font = "13px 'Segoe UI', sans-serif";
+        const cell = rowMap?.get(c);
+        if (cell) {
+          const fontSize = cell.getFontSize();
+          const isBold = cell.getIsBold();
+          const isItalic = cell.getIsItalic();
+          
+          let fontStyle = "";
+          if (isBold && isItalic) {
+            fontStyle = "bold italic";
+          } else if (isBold) {
+            fontStyle = "bold";
+          } else if (isItalic) {
+            fontStyle = "italic";
+          } else {
+            fontStyle = "normal";
+          }
+          
+          this.ctx.font = `${fontStyle} ${fontSize}px 'Arial', sans-serif`;
+        } else {
+          this.ctx.font = "14px 'Arial', sans-serif";
+        }
         this.ctx.textAlign = "left";
         this.ctx.textBaseline = "middle";
         const cellValue = rowMap?.get(c)?.getValue() || "";
@@ -955,5 +1176,158 @@ private editingCellInstance: Cell | null = null;
       <span><strong>MIN:</strong> ${stats.min}</span>
       <span><strong>MAX:</strong> ${stats.max}</span>
       `
+  }
+
+  private onFontSizeChange(): void {
+    const fontSizeSelect = document.getElementById("fontSizeSelect") as HTMLSelectElement;
+    const newSize = parseInt(fontSizeSelect.value);
+    this.applyFontSizeToSelection(newSize);
+  }
+
+  private onBoldToggle(): void {
+    const boldBtn = document.getElementById("boldBtn")!;
+    const isCurrentlyBold = boldBtn.classList.contains("active");
+    this.applyBoldToSelection(!isCurrentlyBold);
+  }
+
+  private onItalicToggle(): void {
+    const italicBtn = document.getElementById("italicBtn")!;
+    const isCurrentlyItalic = italicBtn.classList.contains("active");
+    this.applyItalicToSelection(!isCurrentlyItalic);
+  }
+
+  private applyFontSizeToSelection(newSize: number): void {
+    const selectedCells = this.getSelectedCells();
+    if (selectedCells.length === 0) return;
+
+    // Create and execute command for each selected cell
+    for (const cell of selectedCells) {
+      const command = new FontSizeCommand(cell, newSize);
+      this.commandManager.execute(command);
+    }
+    
+    this.scheduleRender();
+  }
+
+  private applyBoldToSelection(isBold: boolean): void {
+    const selectedCells = this.getSelectedCells();
+    if (selectedCells.length === 0) return;
+
+    // Create and execute command for each selected cell
+    for (const cell of selectedCells) {
+      const command = new BoldCommand(cell, isBold);
+      this.commandManager.execute(command);
+    }
+    
+    this.updateToolbarState();
+    this.scheduleRender();
+  }
+
+  private applyItalicToSelection(isItalic: boolean): void {
+    const selectedCells = this.getSelectedCells();
+    if (selectedCells.length === 0) return;
+
+    // Create and execute command for each selected cell
+    for (const cell of selectedCells) {
+      const command = new ItalicCommand(cell, isItalic);
+      this.commandManager.execute(command);
+    }
+    
+    this.updateToolbarState();
+    this.scheduleRender();
+  }
+
+  private getSelectedCells(): Cell[] {
+    const cells: Cell[] = [];
+    
+    // Check for drag selection
+    const rect = this.selMgr.getDragRect();
+    if (rect) {
+      for (let r = rect.startRow; r <= rect.endRow; r++) {
+        for (let c = rect.startCol; c <= rect.endCol; c++) {
+          cells.push(this.getCell(r, c));
+        }
+      }
+      return cells;
+    }
+    
+    // Check for row selection
+    const selectedRow = this.selMgr.getSelectedRow();
+    if (selectedRow !== null) {
+      for (let c = 0; c < COLS; c++) {
+        cells.push(this.getCell(selectedRow, c));
+      }
+      return cells;
+    }
+    
+    // Check for column selection
+    const selectedCol = this.selMgr.getSelectedCol();
+    if (selectedCol !== null) {
+      for (let r = 0; r < ROWS; r++) {
+        cells.push(this.getCell(r, selectedCol));
+      }
+      return cells;
+    }
+    
+    // Check for single cell selection
+    const selectedCell = this.selMgr.getSelectedCell();
+    if (selectedCell) {
+      cells.push(this.getCell(selectedCell.row, selectedCell.col));
+      return cells;
+    }
+    
+    return cells;
+  }
+
+  private updateToolbarState(): void {
+    const selectedCells = this.getSelectedCells();
+    if (selectedCells.length === 0) {
+      // Reset toolbar to default state
+      const fontSizeSelect = document.getElementById("fontSizeSelect") as HTMLSelectElement;
+      const boldBtn = document.getElementById("boldBtn")!;
+      const italicBtn = document.getElementById("italicBtn")!;
+      
+      fontSizeSelect.value = "14";
+      boldBtn.classList.remove("active");
+      italicBtn.classList.remove("active");
+      return;
+    }
+    
+    // Check if all selected cells have the same formatting
+    const firstCell = selectedCells[0];
+    const allSameSize = selectedCells.every(cell => cell.getFontSize() === firstCell.getFontSize());
+    const allSameBold = selectedCells.every(cell => cell.getIsBold() === firstCell.getIsBold());
+    const allSameItalic = selectedCells.every(cell => cell.getIsItalic() === firstCell.getIsItalic());
+    
+    // Update toolbar state
+    const fontSizeSelect = document.getElementById("fontSizeSelect") as HTMLSelectElement;
+    const boldBtn = document.getElementById("boldBtn")!;
+    const italicBtn = document.getElementById("italicBtn")!;
+    
+    if (allSameSize) {
+      fontSizeSelect.value = firstCell.getFontSize().toString();
+    } else {
+      fontSizeSelect.value = "14"; // Default if mixed
+    }
+    
+    if (allSameBold) {
+      if (firstCell.getIsBold()) {
+        boldBtn.classList.add("active");
+      } else {
+        boldBtn.classList.remove("active");
+      }
+    } else {
+      boldBtn.classList.remove("active"); // Mixed state
+    }
+    
+    if (allSameItalic) {
+      if (firstCell.getIsItalic()) {
+        italicBtn.classList.add("active");
+      } else {
+        italicBtn.classList.remove("active");
+      }
+    } else {
+      italicBtn.classList.remove("active"); // Mixed state
+    }
   }
 }

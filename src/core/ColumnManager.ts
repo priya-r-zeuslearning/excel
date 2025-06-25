@@ -36,5 +36,23 @@ export class ColumnManager {
     getTotalWidth(): number {
       return this.colWidths.reduce((a, b) => a + b, 0);
     }
+
+    /**
+     * Inserts a new column at the specified index.
+     * @param {number} colIndex The index where to insert the new column.
+     */
+    insertColumn(colIndex: number): void {
+      this.colWidths.splice(colIndex, 0, 100); // Default width of 100
+    }
+
+    /**
+     * Deletes a column at the specified index.
+     * @param {number} colIndex The index of the column to delete.
+     */
+    deleteColumn(colIndex: number): void {
+      if (colIndex >= 0 && colIndex < this.colWidths.length) {
+        this.colWidths.splice(colIndex, 1);
+      }
+    }
   }
   
