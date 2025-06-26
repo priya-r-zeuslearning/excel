@@ -264,8 +264,10 @@ export class Grid {
     // Insert a new column at the selected position
     this.colMgr.insertColumn(insertAt);
 
-    // Shift cells right
+    // Shift cells right (batch update for performance)
+    this.beginBatchUpdate();
     this.shiftCellsRight(insertAt);
+    this.endBatchUpdate();
 
     this.scheduleRender();
   }
@@ -318,8 +320,10 @@ export class Grid {
       // Remove the column
       this.colMgr.deleteColumn(deleteAt);
 
-      // Shift cells left
+      // Shift cells left (batch update for performance)
+      this.beginBatchUpdate();
       this.shiftCellsLeft(deleteAt);
+      this.endBatchUpdate();
 
       // Clear selection
       this.selMgr.clearSelection();
@@ -342,33 +346,22 @@ export class Grid {
         this.cells.set(row + 1, newRowMap);
       }
     }
-    // Clear the inserted row
-    this.cells.delete(insertAt);
+    // Clear the inserted row (make it empty, don't delete)
+    this.cells.set(insertAt, new Map());
   }
 
   private shiftCellsRight(insertAt: number): void {
-    // Move all cells from insertAt onwards right by one column
+    // Only process rows that have data
     for (const rowMap of this.cells.values()) {
-      const newRowMap = new Map();
-      for (let col = COLS - 2; col >= insertAt; col--) {
-        const cell = rowMap.get(col);
-        if (cell) {
-          const newCell = new Cell(cell.row, col + 1);
-          newCell.setValue(cell.getValue());
-          newRowMap.set(col + 1, newCell);
-        }
-      }
-      // Copy cells before insertAt
-      for (let col = 0; col < insertAt; col++) {
-        const cell = rowMap.get(col);
-        if (cell) {
-          newRowMap.set(col, cell);
-        }
-      }
-      // Clear the original rowMap and set the new one
-      rowMap.clear();
-      for (const [col, cell] of newRowMap) {
-        rowMap.set(col, cell);
+      // Find all columns in this row that need to be shifted
+      const cols = Array.from(rowMap.keys()).filter(col => col >= insertAt);
+      // Sort descending so we don't overwrite
+      cols.sort((a, b) => b - a);
+      for (const col of cols) {
+        const cell = rowMap.get(col)!;
+        rowMap.set(col + 1, new Cell(cell.row, col + 1));
+        rowMap.get(col + 1)!.setValue(cell.getValue());
+        rowMap.delete(col);
       }
     }
   }
@@ -394,27 +387,18 @@ export class Grid {
   }
 
   private shiftCellsLeft(deleteAt: number): void {
-    // Move all cells from deleteAt + 1 onwards left by one column
     for (const rowMap of this.cells.values()) {
-      const newRowMap = new Map();
-      for (let col = 0; col < deleteAt; col++) {
-        const cell = rowMap.get(col);
-        if (cell) {
-          newRowMap.set(col, cell);
-        }
-      }
-      for (let col = deleteAt + 1; col < COLS; col++) {
-        const cell = rowMap.get(col);
-        if (cell) {
-          const newCell = new Cell(cell.row, col - 1);
-          newCell.setValue(cell.getValue());
-          newRowMap.set(col - 1, newCell);
-        }
-      }
-      // Clear the original rowMap and set the new one
-      rowMap.clear();
-      for (const [col, cell] of newRowMap) {
-        rowMap.set(col, cell);
+      // Remove the deleted column first
+      rowMap.delete(deleteAt);
+      // Find all columns in this row that need to be shifted
+      const cols = Array.from(rowMap.keys()).filter(col => col > deleteAt);
+      // Sort ascending so we don't overwrite
+      cols.sort((a, b) => a - b);
+      for (const col of cols) {
+        const cell = rowMap.get(col)!;
+        rowMap.set(col - 1, new Cell(cell.row, col - 1));
+        rowMap.get(col - 1)!.setValue(cell.getValue());
+        rowMap.delete(col);
       }
     }
   }
@@ -571,7 +555,7 @@ export class Grid {
       }
       if (this.selMgr.isDragging()) {
         const { row } = this.findRowByOffset(y - HEADER_SIZE);
-        this.selMgr.updateDrag(row, 0);
+        this.selMgr.updateDrag(row, null);
         this.scheduleRender();
       }
       return;
@@ -725,6 +709,62 @@ export class Grid {
       return;
     }
 
+    if (
+      e.key === "ArrowRight" ||
+      e.key === "ArrowLeft" ||
+      e.key === "ArrowDown" ||
+      e.key === "ArrowUp"
+    ) {
+      e.preventDefault();
+      const selected = this.selMgr.getSelectedCell();
+      // If dragging, anchor is dragStart, otherwise anchor is selected cell
+      let anchorRow: number, anchorCol: number;
+      if (this.selMgr.isDragging() && this.selMgr["dragStart"]) {
+        anchorRow = this.selMgr["dragStart"].row;
+        anchorCol = this.selMgr["dragStart"].col;
+      } else if (selected) {
+        anchorRow = selected.row;
+        anchorCol = selected.col;
+      } else {
+        return;
+      }
+      // Ensure anchorRow and anchorCol are numbers (never null)
+      if (typeof anchorRow !== 'number' && selected) anchorRow = selected.row;
+      if (typeof anchorCol !== 'number' && selected) anchorCol = selected.col;
+      // Determine new focus cell
+      let focusRow = this.selMgr.isDragging() && this.selMgr["dragEnd"] && typeof this.selMgr["dragEnd"].row === 'number' ? this.selMgr["dragEnd"].row : anchorRow;
+      let focusCol = this.selMgr.isDragging() && this.selMgr["dragEnd"] && typeof this.selMgr["dragEnd"].col === 'number' ? this.selMgr["dragEnd"].col : anchorCol;
+      // Ensure focusRow and focusCol are numbers
+      if (typeof focusRow !== 'number') focusRow = anchorRow;
+      if (typeof focusCol !== 'number') focusCol = anchorCol;
+      switch (e.key) {
+        case "ArrowRight":
+          if (focusCol < COLS - 1) focusCol++;
+          break;
+        case "ArrowLeft":
+          if (focusCol > 0) focusCol--;
+          break;
+        case "ArrowDown":
+          if (focusRow < ROWS - 1) focusRow++;
+          break;
+        case "ArrowUp":
+          if (focusRow > 0) focusRow--;
+          break;
+      }
+      if (e.shiftKey) {
+        if (!this.selMgr.isDragging()) {
+          this.selMgr.startDrag(anchorRow, anchorCol);
+        }
+        this.selMgr.updateDrag(focusRow, focusCol);
+        this.scheduleRender();
+        return;
+      } else {
+        this.selMgr.clearSelection();
+        this.selMgr.selectCell(focusRow, focusCol);
+        this.scheduleRender();
+        this.computeSelectionStats();
+      }
+    }
 
     if (e.key === "Backspace") {
       if (this.selMgr.getSelectedCell() !== null) {
@@ -779,60 +819,11 @@ export class Grid {
       this.scheduleRender();
       return;
     }
-    if (
-      e.key === "ArrowRight" ||
-      e.key === "ArrowLeft" ||
-      e.key === "ArrowDown" ||
-      e.key === "ArrowUp"
-    ) {
-      e.preventDefault();
-      const selected = this.selMgr.getSelectedCell();
-      if (!selected) return;
-      let { row, col } = selected;
-      let moved = false;
-      switch (e.key) {
-        case "ArrowRight":
-          if (col < COLS - 1) {
-            col++;
-            e.preventDefault();
-            moved = true;
-          }
-          break;
-        case "ArrowLeft":
-          if (col > 0) {
-            col--;
-            e.preventDefault();
-            moved = true;
-          }
-          break;
-        case "ArrowDown":
-          if (row < ROWS - 1) {
-            row++;
-            e.preventDefault();
-            moved = true;
-          }
-          break;
-        case "ArrowUp":
-          if (row > 0) {
-            row--;
-            e.preventDefault();
-            moved = true;
-          }
-          break;
-        default:
-          return;
-      }
-      if (moved) {
-        this.selMgr.selectCell(row, col);
-        this.scheduleRender();
-        this.computeSelectionStats();
-      }
-    }
 
     this.computeSelectionStats();
     this.updateToolbarState();
   }
-
+  
   /* ────────── Editing overlay helpers ─────────────────────────────── */
   private startEditingCell(row: number, col: number): void {
     const cell = this.getCell(row, col); // Creates only once
@@ -856,7 +847,7 @@ export class Grid {
     this.editorInput.style.fontFamily = "Arial, sans-serif";
     this.editorInput.style.color = "#222";
     this.editorInput.style.textAlign = "left";
-    this.editorInput.style.padding = "5px";
+    this.editorInput.style.paddingLeft = "5px";
     this.editorInput.style.backgroundColor = "transparent !important";
     this.container.appendChild(this.editorInput);
 
@@ -879,9 +870,9 @@ export class Grid {
 
     Object.assign(this.editorInput.style, {
       left: `${left + 3}px`,
-      top: `${top + 106}px`,
+      top: `${top + 112}px`,
       width: `${this.colMgr.getWidth(col) - 6}px`,
-      height: `${this.rowMgr.getHeight(row) - 7}px`,
+      height: `${this.rowMgr.getHeight(row) - 8}px`,
       zIndex: "8",
       display: "block",
     } as CSSStyleDeclaration);
@@ -1018,7 +1009,7 @@ export class Grid {
         this.ctx.textBaseline = "middle";
         const cellValue = rowMap?.get(c)?.getValue() || "";
         const clipped = this.clipText(cellValue, colW - 16);
-        this.ctx.fillText(clipped, xPos + 8, yPos + rowH / 2);
+        this.ctx.fillText(clipped, xPos + 8, yPos + rowH - 10);
         xPos += colW;
       }
       yPos += rowH;
@@ -1110,7 +1101,7 @@ export class Grid {
     const ctx = this.ctx;
     const label = isColumn ? this.columnName(index) : (index + 1).toString();
     this.rowHeaderWidth = Math.max(this.rowHeaderWidth, ctx.measureText(label).width + 16);
-    
+
     const x = isColumn ? pos : 0;
     const y = isColumn ? 0 : pos;
     let w = isColumn ? size : this.rowHeaderWidth;

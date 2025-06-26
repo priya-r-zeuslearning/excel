@@ -266,15 +266,15 @@ export class SelectionManager {
     // Selected cell border only (Excel style, no fill)
     if (this.selectedCell) {
       const { row, col } = this.selectedCell;
-      const x = rowHeaderWidth + colMgr.getX(col) - scrollX;
-      const y = HEADER_SIZE + rowMgr.getY(row) - scrollY;
-      const w = colMgr.getWidth(col);
-      const h = rowMgr.getHeight(row);
+      const x = rowHeaderWidth + colMgr.getX(col) - scrollX ;
+      const y = HEADER_SIZE + rowMgr.getY(row) - scrollY ;
+      const w = colMgr.getWidth(col) ;
+      const h = rowMgr.getHeight(row) ;
       ctx.save();
       ctx.strokeStyle = "#107C41";
       ctx.lineWidth = 3 / window.devicePixelRatio;
  
-      ctx.strokeRect(x + 0.5, y + 0.5, w - 0.5, h - 0.5);
+      ctx.strokeRect(x - 1, y - 1, w + 2, h + 2);
       ctx.restore();
     }
 
