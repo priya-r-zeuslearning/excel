@@ -12,6 +12,11 @@ export interface Aggregates {
     /**
      * Given a 2D range of cell values, returns sum, count, avg, min, max.
      */
+    /**
+     * 
+     * @param cells 
+     * @returns Interface Aggregates
+     */
     static compute(cells: (string | number)[][]): Aggregates {
       let values: number[] = [];
   

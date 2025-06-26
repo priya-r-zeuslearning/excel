@@ -6,9 +6,9 @@
  */
 export class Cell {
     /** @type {number} The row index of the cell. */
-    public readonly row: number;
+    public  row: number;
     /** @type {number} The column index of the cell. */
-    public readonly col: number;
+    public  col: number;
     /** @type {string} The value stored in the cell. */
     private value: string = "";
     /** @type {number} The font size of the cell. */
@@ -35,7 +35,12 @@ export class Cell {
     getValue(): string {
         return this.value;
     }
-
+    public clear(): void {
+        this.value = "";
+        this.fontSize = 14;
+        this.isBold = false;
+        this.isItalic = false;
+    }
     /**
      * Sets the value of the cell.
      * @param {string} value The new value.

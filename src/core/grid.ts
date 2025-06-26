@@ -10,7 +10,7 @@ import { ResizeRowCommand } from "../commands/ResizeRowCommand";
 import { FontSizeCommand } from "../commands/FontSizeCommand";
 import { BoldCommand } from "../commands/BoldCommand";
 import { ItalicCommand } from "../commands/ItalicCommand";
-import { Aggregator } from './Aggregator';
+import { Aggregator } from "./Aggregator";
 
 /**
  * Default sizes used by managers on first construction.
@@ -18,15 +18,15 @@ import { Aggregator } from './Aggregator';
 const DEFAULT_COL_WIDTH = 100;
 const DEFAULT_ROW_HEIGHT = 30;
 
-/** How many rows & columns we create (can be huge later) */
-const ROWS = 100_000;
+
+const ROWS = 100_000; 
 const COLS = 5000;
 
 /** How many extra rows / columns to draw outside the viewport */
 const RENDER_BUFFER_PX = 200;
 
 /** Size of the header band (row numbers / column letters) */
-let HEADER_SIZE = 40;
+const HEADER_SIZE = 40;
 
 /** How many pixels near an edge counts as a "resize hotspot" */
 const RESIZE_GUTTER = 5;
@@ -47,7 +47,7 @@ export class Grid {
   public readonly colMgr: ColumnManager;
   /** @type {SelectionManager} Manages selection state and drawing. */
   private readonly selMgr: SelectionManager;
-  /** @type {Cell[][]} Stores all cell objects. */
+  private rowHeaderWidth: number = 40;
   private cells: Map<number, Map<number, Cell>> = new Map();
   /** @type {HTMLInputElement|null} The input element for cell editing. */
   private editorInput: HTMLInputElement | null = null;
@@ -61,12 +61,14 @@ export class Grid {
   private renderScheduled: boolean = false;
   /** @type {boolean} Whether the mouse is currently down for drag selection. */
   private isMouseDown: boolean = false;
+  /** @type {boolean} Whether the mouse is currently dragging on column headers. */
+  private isColHeaderDrag: boolean = false;
   /** @type {{row: number, col: number}|null} The cell where drag selection started. */
   private dragStartCell: { row: number; col: number } | null = null;
+  /** @type {number|null} The column where column header drag started. */
+  private dragStartColHeader: number | null = null;
   /** @type {{x: number, y: number}|null} The position where drag selection started. */
   private dragStartMouse: { x: number; y: number } | null = null;
-  /** @type {number|null} The column being resized, if any. */
-  private resizingCol: number | null = null;
   /** @type {number|null} The row being resized, if any. */
   private resizingRow: number | null = null;
   /** @type {number} The X position where a drag or resize started. */
@@ -79,8 +81,21 @@ export class Grid {
   // Add these properties to track resize operations
   private currentResizeCommand: any = null;
   private isResizing: boolean = false;
- 
-private editingCellInstance: Cell | null = null;
+
+  private editingCellInstance: Cell | null = null;
+
+  /** @type {number|null} The column being resized, if any. */
+  private resizingCol: number | null = null;
+
+  // Helper flag to track if header drag has moved
+  private _colHeaderDragHasDragged: boolean = false;
+
+  /** @type {boolean} Whether the mouse is currently dragging on row headers. */
+  private isRowHeaderDrag: boolean = false;
+  /** @type {number|null} The row where row header drag started. */
+  private dragStartRowHeader: number | null = null;
+  // Helper flag to track if row header drag has moved
+  private _rowHeaderDragHasDragged: boolean = false;
 
   /* ─────────────────────────────────────────────────────────────────── */
   /**
@@ -154,33 +169,29 @@ private editingCellInstance: Cell | null = null;
    */
 
   /**
-   * Gets the cell object at the specified row and column.
+   * Gets the cell object at the specified row and column, or null if it doesn't exist.
    * @param {number} row The row index.
    * @param {number} col The column index.
-   * @returns {Cell} The cell object.
+   * @returns {Cell|null} The cell object or null if not present.
    */
-  public getCell(row: number, col: number): Cell {
-    let rowMap = this.cells.get(row);
-    if (!rowMap) {
-      rowMap = new Map();
-      this.cells.set(row, rowMap);
-    }
-    // @ts-ignore
-    if (!rowMap.has(col)) {
-      // @ts-ignore
-      if (window._lastCreatedCell && window._lastCreatedCell.row === row && window._lastCreatedCell.col === col) {
-        console.warn("⚠️ Same cell created twice in a row:", row, col);
-      }
-      // @ts-ignore
-      window._lastCreatedCell = { row, col };
-      // console.log("✅ Creating cell at row:", row, "col:", col);
-      // console.trace();
-      rowMap.set(col, new Cell(row, col));
-      // console.log("Cells created:", this.countCreatedCells());
-    }
-    return rowMap.get(col)!;
+  private getCellIfExists(row: number, col: number): Cell | null {
+    const rowMap = this.cells.get(row);
+    if (!rowMap) return null;
+    return rowMap.get(col) || null;
   }
-  
+
+  /**
+   * Gets the value of the cell at the specified row and column, or an empty string if it doesn't exist.
+   * @param {number} row The row index.
+   * @param {number} col The column index.
+   * @returns {string} The cell value or empty string if not present.
+   */
+  private getCellValueIfExists(row: number, col: number): string {
+    const rowMap = this.cells.get(row);
+    if (!rowMap) return "";
+    const cell = rowMap.get(col);
+    return cell ? cell.getValue() : "";
+  }
 
   /* ────────── Event wiring ─────────────────────────────────────────── */
   /**
@@ -197,7 +208,7 @@ private editingCellInstance: Cell | null = null;
     undoButton.addEventListener("click", this.onUndo.bind(this));
     const redoButton = document.getElementById("redoBtn")!;
     redoButton.addEventListener("click", this.onRedo.bind(this));
-    
+
     // Toolbar buttons
     const insertRowBtn = document.getElementById("insertRowBtn")!;
     insertRowBtn.addEventListener("click", this.onInsertRow.bind(this));
@@ -207,9 +218,11 @@ private editingCellInstance: Cell | null = null;
     deleteRowBtn.addEventListener("click", this.onDeleteRow.bind(this));
     const deleteColBtn = document.getElementById("deleteColBtn")!;
     deleteColBtn.addEventListener("click", this.onDeleteColumn.bind(this));
-    
+
     // Font controls
-    const fontSizeSelect = document.getElementById("fontSizeSelect") as HTMLSelectElement;
+    const fontSizeSelect = document.getElementById(
+      "fontSizeSelect"
+    ) as HTMLSelectElement;
     fontSizeSelect.addEventListener("change", this.onFontSizeChange.bind(this));
     const boldBtn = document.getElementById("boldBtn")!;
     boldBtn.addEventListener("click", this.onBoldToggle.bind(this));
@@ -230,55 +243,59 @@ private editingCellInstance: Cell | null = null;
   private onInsertRow(): void {
     const selectedRow = this.selMgr.getSelectedRow();
     const selectedCell = this.selMgr.getSelectedCell();
-    const insertAt = selectedRow !== null ? selectedRow : (selectedCell ? selectedCell.row : 0);
-    
+    const insertAt =
+      selectedRow !== null ? selectedRow : selectedCell ? selectedCell.row : 0;
+
     // Insert a new row at the selected position
     this.rowMgr.insertRow(insertAt);
-    
+
     // Shift cells down
     this.shiftCellsDown(insertAt);
-    
+
     this.scheduleRender();
   }
 
   private onInsertColumn(): void {
     const selectedCol = this.selMgr.getSelectedCol();
     const selectedCell = this.selMgr.getSelectedCell();
-    const insertAt = selectedCol !== null ? selectedCol : (selectedCell ? selectedCell.col : 0);
-    
+    const insertAt =
+      selectedCol !== null ? selectedCol : selectedCell ? selectedCell.col : 0;
+
     // Insert a new column at the selected position
     this.colMgr.insertColumn(insertAt);
-    
+
     // Shift cells right
     this.shiftCellsRight(insertAt);
-    
+
     this.scheduleRender();
   }
 
   private onDeleteRow(): void {
     const selectedRow = this.selMgr.getSelectedRow();
-    
+
     // Only delete if a row is specifically selected
     if (selectedRow === null) {
       return;
     }
-    
+
     // Ask for confirmation
-    const confirmed = confirm(`Are you sure you want to delete row ${selectedRow + 1}?`);
+    const confirmed = confirm(
+      `Are you sure you want to delete row ${selectedRow + 1}?`
+    );
     if (!confirmed) {
       return;
     }
-    
+
     if (selectedRow >= 0 && selectedRow < ROWS) {
       // Remove the row
       this.rowMgr.deleteRow(selectedRow);
-      
+
       // Shift cells up
       this.shiftCellsUp(selectedRow);
-      
+
       // Clear selection
       this.selMgr.clearSelection();
-      
+
       this.scheduleRender();
     }
   }
@@ -289,21 +306,24 @@ private editingCellInstance: Cell | null = null;
     if (selectedCol === null) {
       return;
     }
-    const deleteAt = selectedCol !== null ? selectedCol : (selectedCell ? selectedCell.col : 0);
-    const confirmed = confirm(`Are you sure you want to delete column ${deleteAt + 1}?`);
+    const deleteAt =
+      selectedCol !== null ? selectedCol : selectedCell ? selectedCell.col : 0;
+    const confirmed = confirm(
+      `Are you sure you want to delete column ${deleteAt + 1}?`
+    );
     if (!confirmed) {
       return;
     }
     if (deleteAt >= 0 && deleteAt < COLS) {
       // Remove the column
       this.colMgr.deleteColumn(deleteAt);
-      
+
       // Shift cells left
       this.shiftCellsLeft(deleteAt);
-      
+
       // Clear selection
       this.selMgr.clearSelection();
-      
+
       this.scheduleRender();
     }
   }
@@ -399,33 +419,6 @@ private editingCellInstance: Cell | null = null;
     }
   }
 
-  /* ────────── Coordinate helpers ────────────────────────────────{ x: number; y: number } {
-    const rect = this.canvas.getBoundingClientRect();
-    const x = evt.clientX - rect.left + this.container.scrollLeft;
-    const y = evt.clientY - rect.top + this.container.scrollTop;
-    return { x, y };
-  }
-
-  private findColumnByOffset(offsetX: number): { col: number; within: number } {
-    let x = 0;
-    for (let c = 0; c < COLS; c++) {
-      const w = this.colMgr.getWidth(c);
-      if (offsetX < x + w) return { col: c, within: offsetX - x };
-      x += w;
-    }
-    return { col: COLS - 1, within: 0 };
-  }
-
-  private findRowByOffset(offsetY: number): { row: number; within: number } {
-    let y = 0;
-    for (let r = 0; r < ROWS; r++) {
-      const h = this.rowMgr.getHeight(r);
-      if (offsetY < y + h) return { row: r, within: offsetY - y };
-      y += h;
-    }
-    return { row: ROWS - 1, within: 0 };
-  }
-
   /* ────────── Mouse handlers (selection / resize / edit) ───────────── */
   private onMouseDown(evt: MouseEvent): void {
     // Use event offset for header hit-testing so header resize works when scrolled
@@ -442,10 +435,25 @@ private editingCellInstance: Cell | null = null;
         this.dragStartX = evt.clientX;
         this.originalSize = this.colMgr.getWidth(col);
         this.isResizing = true;
-        this.currentResizeCommand = new ResizeColumnCommand(this, this.resizingCol, this.originalSize, this.originalSize);
+        this.currentResizeCommand = new ResizeColumnCommand(
+          this,
+          this.resizingCol,
+          this.originalSize,
+          this.originalSize
+        );
         this.ctx.strokeStyle = "#107C41";
         this.ctx.lineWidth = 2 / dpr;
-      
+        return;
+      }
+      // --- Multi-column drag selection start ---
+      if (mouseX >= HEADER_SIZE) {
+        const { col } = this.findColumnByOffset(x - HEADER_SIZE);
+        this.isColHeaderDrag = true;
+        this.isMouseDown = true;
+        this.dragStartColHeader = col;
+        this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
+        this._colHeaderDragHasDragged = false; // helper flag
+        // Do NOT select yet; wait for mouseup or drag
         return;
       }
     }
@@ -456,23 +464,24 @@ private editingCellInstance: Cell | null = null;
         this.dragStartY = evt.clientY;
         this.originalSize = this.rowMgr.getHeight(row);
         this.isResizing = true;
-        this.currentResizeCommand = new ResizeRowCommand(this, this.resizingRow, this.originalSize, this.originalSize);
+        this.currentResizeCommand = new ResizeRowCommand(
+          this,
+          this.resizingRow,
+          this.originalSize,
+          this.originalSize
+        );
         return;
       }
-    }
-
-    /* 2 Header clicks – full row / column selection */
-    if (mouseY < HEADER_SIZE && mouseX >= HEADER_SIZE) {
-      const { col } = this.findColumnByOffset(x - HEADER_SIZE);
-      this.selMgr.selectColumn(col);
-      this.scheduleRender();
-      return;
-    }
-    if (mouseX < HEADER_SIZE && mouseY >= HEADER_SIZE) {
-      const { row } = this.findRowByOffset(y - HEADER_SIZE);
-      this.selMgr.selectRow(row);
-      this.scheduleRender();
-      return;
+      // --- Multi-row drag selection start ---
+      if (mouseY >= HEADER_SIZE) {
+        this.isRowHeaderDrag = true;
+        this.isMouseDown = true;
+        this.dragStartRowHeader = row;
+        this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
+        this._rowHeaderDragHasDragged = false;
+        // Do NOT select yet; wait for mouseup or drag
+        return;
+      }
     }
 
     /* 3 Inside grid – start drag selection (or single cell) */
@@ -486,6 +495,7 @@ private editingCellInstance: Cell | null = null;
         this.scheduleRender();
         // Prepare for possible drag selection
         this.isMouseDown = true;
+        this.isColHeaderDrag = false;
         this.dragStartCell = { row, col };
         this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
       }
@@ -496,15 +506,17 @@ private editingCellInstance: Cell | null = null;
   }
 
   private onDoubleClick(evt: MouseEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = evt.clientX - rect.left;
+    const mouseY = evt.clientY - rect.top;
+    if (mouseX < HEADER_SIZE || mouseY < HEADER_SIZE) return;
     const { x, y } = this.getMousePos(evt);
-    if (x < HEADER_SIZE || y < HEADER_SIZE) return;
-
     const { col } = this.findColumnByOffset(x - HEADER_SIZE);
     const { row } = this.findRowByOffset(y - HEADER_SIZE);
     this.startEditingCell(row, col);
   }
 
-  private onMouseMove(evt: MouseEvent): void {
+  private  onMouseMove(evt: MouseEvent): void {
     // Use event offset for header hit-testing so header resize works when scrolled
     const rect = this.canvas.getBoundingClientRect();
     const mouseX = evt.clientX - rect.left;
@@ -529,7 +541,43 @@ private editingCellInstance: Cell | null = null;
       }
     }
 
-    /* Drag‑to‑select update */
+    // --- Multi-column drag selection update ---
+    if (this.isColHeaderDrag && this.isMouseDown && this.dragStartColHeader !== null) {
+      if (!this.selMgr.isDragging() && this.dragStartMouse) {
+        const dx = Math.abs(evt.clientX - this.dragStartMouse.x);
+        if (dx > 2) {
+          // threshold in pixels
+          this.selMgr.startDrag(0, this.dragStartColHeader);
+          this._colHeaderDragHasDragged = true;
+        }
+      }
+      if (this.selMgr.isDragging()) {
+        const { col } = this.findColumnByOffset(x - HEADER_SIZE);
+        this.selMgr.updateDrag(0, col);
+        this.scheduleRender();
+      }
+      return;
+    }
+
+    // --- Multi-row drag selection update ---
+    if (this.isRowHeaderDrag && this.isMouseDown && this.dragStartRowHeader !== null) {
+      if (!this.selMgr.isDragging() && this.dragStartMouse) {
+        const dy = Math.abs(evt.clientY - this.dragStartMouse.y);
+        if (dy > 2) {
+          // threshold in pixels
+          this.selMgr.startDrag(this.dragStartRowHeader, 0);
+          this._rowHeaderDragHasDragged = true;
+        }
+      }
+      if (this.selMgr.isDragging()) {
+        const { row } = this.findRowByOffset(y - HEADER_SIZE);
+        this.selMgr.updateDrag(row, 0);
+        this.scheduleRender();
+      }
+      return;
+    }
+
+    /* Drag‑to‑select update (cells) */
     if (
       this.isMouseDown &&
       this.dragStartCell &&
@@ -543,6 +591,7 @@ private editingCellInstance: Cell | null = null;
         if (dx > 2 || dy > 2) {
           // threshold in pixels
           this.selMgr.startDrag(this.dragStartCell.row, this.dragStartCell.col);
+          this.startEditingCell(this.dragStartCell.row, this.dragStartCell.col);
         }
       }
       if (this.selMgr.isDragging()) {
@@ -578,7 +627,11 @@ private editingCellInstance: Cell | null = null;
 
   private onMouseDrag(evt: MouseEvent): void {
     /* Column resize */
-    if (this.resizingCol !== null && this.isResizing && this.currentResizeCommand) {
+    if (
+      this.resizingCol !== null &&
+      this.isResizing &&
+      this.currentResizeCommand
+    ) {
       const dx = evt.clientX - this.dragStartX;
       const newW = Math.max(40, this.originalSize + dx);
       this.colMgr.setWidth(this.resizingCol, newW);
@@ -587,7 +640,11 @@ private editingCellInstance: Cell | null = null;
       this.scheduleRender();
     }
     /* Row resize */
-    if (this.resizingRow !== null && this.isResizing && this.currentResizeCommand) {
+    if (
+      this.resizingRow !== null &&
+      this.isResizing &&
+      this.currentResizeCommand
+    ) {
       const dy = evt.clientY - this.dragStartY;
       const newH = Math.max(20, this.originalSize + dy);
       this.rowMgr.setHeight(this.resizingRow, newH);
@@ -604,13 +661,51 @@ private editingCellInstance: Cell | null = null;
       this.currentResizeCommand = null;
       this.isResizing = false;
     }
-    
+
     this.resizingCol = null;
     this.resizingRow = null;
+    // --- Multi-column drag selection end ---
+    if (this.isColHeaderDrag) {
+      // If not dragged, treat as single column selection
+      if (!this._colHeaderDragHasDragged && this.dragStartColHeader !== null) {
+        this.selMgr.selectColumn(this.dragStartColHeader);
+        this.scheduleRender();
+      } else if (this.selMgr.isDragging()) {
+        this.selMgr.endDrag();
+        this.scheduleRender();
+      }
+      this.isColHeaderDrag = false;
+      this.isMouseDown = false;
+      this.dragStartColHeader = null;
+      this.dragStartMouse = null;
+      this._colHeaderDragHasDragged = false;
+      this.computeSelectionStats();
+      this.updateToolbarState();
+      return;
+    }
+    // --- Multi-row drag selection end ---
+    if (this.isRowHeaderDrag) {
+      // If not dragged, treat as single row selection
+      if (!this._rowHeaderDragHasDragged && this.dragStartRowHeader !== null) {
+        this.selMgr.selectRow(this.dragStartRowHeader);
+        this.scheduleRender();
+      } else if (this.selMgr.isDragging()) {
+        this.selMgr.endDrag();
+        this.scheduleRender();
+      }
+      this.isRowHeaderDrag = false;
+      this.isMouseDown = false;
+      this.dragStartRowHeader = null;
+      this.dragStartMouse = null;
+      this._rowHeaderDragHasDragged = false;
+      this.computeSelectionStats();
+      this.updateToolbarState();
+      return;
+    }
     this.isMouseDown = false;
     this.dragStartCell = null;
     this.dragStartMouse = null;
-    
+
     // Finalize drag selection if we were dragging
     if (this.selMgr.isDragging()) {
       this.selMgr.endDrag();
@@ -629,6 +724,49 @@ private editingCellInstance: Cell | null = null;
       this.finishEditing(true);
       return;
     }
+
+
+    if (e.key === "Backspace") {
+      if (this.selMgr.getSelectedCell() !== null) {
+        const cell = this.getCell(this.selMgr.getSelectedCell()!.row, this.selMgr.getSelectedCell()!.col);
+        const command = new EditCellCommand(this, cell, cell.getValue(), "");
+        this.commandManager.execute(command);
+      }
+      if (this.selMgr.getSelectedRow() !== null) {
+        this.onDeleteRow();
+      }
+      if (this.selMgr.getSelectedCol() !== null) {
+        this.onDeleteColumn();
+      }
+      // } if(this.selMgr.getSelectedCell() !== null)
+      // {
+      //   this.onDeleteCell();
+      // }
+      this.scheduleRender();
+      return;
+    }
+    if (e.key === "Delete") {
+      
+      // if (this.selMgr.isDragging()) {
+      //   this.onDeleteRow();
+      //   this.onDeleteColumn();
+      //   this.scheduleRender();
+      //   return;
+      // }
+      if (this.selMgr.getSelectedCell() !== null) {
+        const cell = this.getCell(this.selMgr.getSelectedCell()!.row, this.selMgr.getSelectedCell()!.col);
+        const command = new EditCellCommand(this, cell, cell.getValue(), "");
+        this.commandManager.execute(command);
+      }
+      if (this.selMgr.getSelectedRow() !== null) {
+        this.onDeleteRow();
+      }
+      if (this.selMgr.getSelectedCol() !== null) {
+        this.onDeleteColumn();
+      }
+      this.scheduleRender();
+      return;
+    }
     if (e.ctrlKey && e.key === "z") {
       e.preventDefault();
       this.commandManager.undo();
@@ -639,45 +777,14 @@ private editingCellInstance: Cell | null = null;
       e.preventDefault();
       this.commandManager.redo();
       this.scheduleRender();
-      return; 
-    }
-   
- 
-    if(e.key === "Backspace"  )
-    {
-      if (this.selMgr.getSelectedRow() !== null) {
-        this.onDeleteRow();
-      } if (this.selMgr.getSelectedCol() !== null) {
-        this.onDeleteColumn();
-      }
-      // } if(this.selMgr.getSelectedCell() !== null)
-      // {
-      //   this.onDeleteCell();
-      // }
-      this.scheduleRender();
       return;
     }
-    if(e.key === "Delete"  )
-    {
-      //if delete is pressed on dragged cells then delete all the cells/ contents 
-      if (this.selMgr.isDragging()) {
-        this.onDeleteRow();
-        this.onDeleteColumn();
-        this.scheduleRender();
-        return;
-      }
-      if (this.selMgr.getSelectedRow() !== null) {
-        this.onDeleteRow();
-      } if (this.selMgr.getSelectedCol() !== null) {
-        this.onDeleteColumn();
-      }
-      this.scheduleRender();
-      return;
-    }
- 
-
- 
-    if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (
+      e.key === "ArrowRight" ||
+      e.key === "ArrowLeft" ||
+      e.key === "ArrowDown" ||
+      e.key === "ArrowUp"
+    ) {
       e.preventDefault();
       const selected = this.selMgr.getSelectedCell();
       if (!selected) return;
@@ -689,7 +796,6 @@ private editingCellInstance: Cell | null = null;
             col++;
             e.preventDefault();
             moved = true;
-        
           }
           break;
         case "ArrowLeft":
@@ -720,10 +826,8 @@ private editingCellInstance: Cell | null = null;
         this.selMgr.selectCell(row, col);
         this.scheduleRender();
         this.computeSelectionStats();
-        
       }
-    } 
-   
+    }
 
     this.computeSelectionStats();
     this.updateToolbarState();
@@ -733,15 +837,14 @@ private editingCellInstance: Cell | null = null;
   private startEditingCell(row: number, col: number): void {
     const cell = this.getCell(row, col); // Creates only once
     this.editingCellInstance = cell;
-  
+
     if (!this.editorInput) this.createEditorInput();
-  
+
     this.editingCell = { row, col };
     this.editorInput!.value = cell.getValue();
     this.updateEditorPosition();
     this.editorInput!.focus();
   }
-  
 
   private createEditorInput(): void {
     this.editorInput = document.createElement("input");
@@ -771,37 +874,39 @@ private editingCellInstance: Cell | null = null;
     const scrollX = this.container.scrollLeft;
     const scrollY = this.container.scrollTop;
 
-    const left = HEADER_SIZE + this.colMgr.getX(col) - scrollX;
+    const left = this.rowHeaderWidth + this.colMgr.getX(col) - scrollX;
     const top = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
 
     Object.assign(this.editorInput.style, {
       left: `${left + 3}px`,
       top: `${top + 106}px`,
       width: `${this.colMgr.getWidth(col) - 6}px`,
-      height: `${this.rowMgr.getHeight(row) - 6}px`,
+      height: `${this.rowMgr.getHeight(row) - 7}px`,
+      zIndex: "8",
       display: "block",
     } as CSSStyleDeclaration);
+    // this.drawHeader(row, false, top, this.rowMgr.getHeight(row));
+    // this.drawHeader(col, true, left, this.colMgr.getWidth(col));
   }
 
   private finishEditing(commit: boolean): void {
-    if (!this.editorInput || !this.editingCell || !this.editingCellInstance) return;
-  
+    if (!this.editorInput || !this.editingCell || !this.editingCellInstance)
+      return;
+
     const cell = this.editingCellInstance; // ← Use the cached one
     const oldValue = cell.getValue();
     const newValue = this.editorInput.value;
-  
+
     if (commit && newValue !== oldValue) {
       const command = new EditCellCommand(this, cell, oldValue, newValue);
       this.commandManager.execute(command);
     }
-  
+
     this.editorInput.style.display = "none";
     this.editingCell = null;
     this.editingCellInstance = null;
     this.scheduleRender();
   }
-  
-  
 
   /* ────────── Rendering ───────────────────────────────────────────── */
   private getVisibleRange(): {
@@ -882,7 +987,7 @@ private editingCellInstance: Cell | null = null;
     let yPos = HEADER_SIZE + this.rowMgr.getY(firstRow) - scrollY;
     for (let r = firstRow; r <= lastRow; r++) {
       const rowH = this.rowMgr.getHeight(r);
-      let xPos = HEADER_SIZE + this.colMgr.getX(firstCol) - scrollX;
+      let xPos = this.rowHeaderWidth + this.colMgr.getX(firstCol) - scrollX;
       const rowMap = this.cells.get(r);
       for (let c = firstCol; c <= lastCol; c++) {
         const colW = this.colMgr.getWidth(c);
@@ -893,7 +998,7 @@ private editingCellInstance: Cell | null = null;
           const fontSize = cell.getFontSize();
           const isBold = cell.getIsBold();
           const isItalic = cell.getIsItalic();
-          
+
           let fontStyle = "";
           if (isBold && isItalic) {
             fontStyle = "bold italic";
@@ -904,7 +1009,7 @@ private editingCellInstance: Cell | null = null;
           } else {
             fontStyle = "normal";
           }
-          
+
           this.ctx.font = `${fontStyle} ${fontSize}px 'Arial', sans-serif`;
         } else {
           this.ctx.font = "14px 'Arial', sans-serif";
@@ -919,7 +1024,8 @@ private editingCellInstance: Cell | null = null;
       yPos += rowH;
     }
     // Draw vertical grid lines
-    let gridX = HEADER_SIZE + this.colMgr.getX(firstCol) - scrollX;
+    // this.ctx.font = ""
+    let gridX = this.rowHeaderWidth + this.colMgr.getX(firstCol) - scrollX;
     for (let c = firstCol; c <= lastCol + 1; c++) {
       this.ctx.beginPath();
       this.ctx.moveTo(gridX, HEADER_SIZE);
@@ -946,11 +1052,12 @@ private editingCellInstance: Cell | null = null;
       this.rowMgr,
       this.colMgr,
       HEADER_SIZE,
+      this.rowHeaderWidth,
       scrollX,
       scrollY
     );
     // Draw headers LAST so they are on top
-    let x = HEADER_SIZE + this.colMgr.getX(firstCol) - scrollX;
+    let x = this.rowHeaderWidth + this.colMgr.getX(firstCol) - scrollX;
     for (let c = firstCol; c <= lastCol; c++) {
       const w = this.colMgr.getWidth(c);
       this.drawHeader(c, true, x, w);
@@ -964,11 +1071,7 @@ private editingCellInstance: Cell | null = null;
       y += h;
     }
     // Top-left corner square
-    this.ctx.fillStyle = "#f3f6fb";
-    this.ctx.fillRect(0, 0, HEADER_SIZE, HEADER_SIZE);
-    this.ctx.strokeStyle = "#d4d4d4";
-    this.ctx.lineWidth = 1/dpr;
-    this.ctx.strokeRect(0, 0, HEADER_SIZE, HEADER_SIZE);
+  
   }
 
   private clipText(text: string, maxWidth: number): string {
@@ -1005,21 +1108,23 @@ private editingCellInstance: Cell | null = null;
     size: number
   ): void {
     const ctx = this.ctx;
+    const label = isColumn ? this.columnName(index) : (index + 1).toString();
+    this.rowHeaderWidth = Math.max(this.rowHeaderWidth, ctx.measureText(label).width + 16);
+    
     const x = isColumn ? pos : 0;
     const y = isColumn ? 0 : pos;
-    let w = isColumn ? size : HEADER_SIZE;
+    let w = isColumn ? size : this.rowHeaderWidth;
     const h = isColumn ? HEADER_SIZE : size;
     ctx.font = "14px Calibri, 'Segoe UI', sans-serif";
+   
 
     // Dynamically adjust row header width for large row numbers
     if (!isColumn) {
       const rowLabel = (index + 1).toString();
       const textWidth = ctx.measureText(rowLabel).width;
       const padding = 16;
-      w = Math.max(HEADER_SIZE, textWidth + padding);
-      if (index + 1 > 1000) {
-        w = HEADER_SIZE + 5;
-      }
+      w = Math.max(this.rowHeaderWidth, textWidth + padding);
+    
     }
 
     // Get selection states
@@ -1059,10 +1164,14 @@ private editingCellInstance: Cell | null = null;
     if (!isColumn && selectedCol !== null) {
       highlight = true;
     }
-
+    this.ctx.fillStyle = "#f3f6fb";
+    this.ctx.fillRect(0, 0, this.rowHeaderWidth, HEADER_SIZE);
+    this.ctx.strokeStyle = "#d4d4d4";
+    this.ctx.lineWidth = 1 / dpr;
+    this.ctx.strokeRect(0, 0, this.rowHeaderWidth, HEADER_SIZE);
     // Check drag selection
     if (dragRect) {
-      const inRange = isColumn 
+      const inRange = isColumn
         ? (index >= dragRect.startCol && index <= dragRect.endCol)
         : (index >= dragRect.startRow && index <= dragRect.endRow);
       if (inRange) {
@@ -1081,17 +1190,17 @@ private editingCellInstance: Cell | null = null;
 
     // Draw borders
     ctx.strokeStyle = highlight ? "#107C41" : "#b7c6d5";
-    ctx.lineWidth = highlight ? 2 / dpr : 1/ dpr;
+    ctx.lineWidth = highlight ? 2 / dpr : 1 / dpr;
     ctx.beginPath();
     
     if (isColumn) {
       ctx.moveTo(x, y + h - 0.5);
       ctx.lineTo(x + w, y + h - 0.5);
       if (!highlight) {
-          ctx.moveTo(x + 0.5, y);
-      ctx.lineTo(x , y + h);
+        ctx.moveTo(x + 0.5, y);
+        ctx.lineTo(x, y + h);
         
-      }   
+      }
 
     } else {
       ctx.moveTo(x + w - 0.5, y);
@@ -1108,12 +1217,17 @@ private editingCellInstance: Cell | null = null;
     if (isBold) {
       ctx.font = "bold 14px Calibri, 'Segoe UI', sans-serif";
     }
-    ctx.textAlign = "center";
+   
     ctx.textBaseline = "middle";
-    const label = isColumn ? this.columnName(index) : (index + 1).toString();
-    ctx.fillText(label, x + w / 2, y + h / 2);
+    
+    if (isColumn) {
+      ctx.textAlign = "center";
+      ctx.fillText(label, x + w / 2, y + h / 2);
+    } else {
+      ctx.textAlign = "right";
+      ctx.fillText(label, x + w - 4, y + h / 2);
+    }
   }
-
   private columnName(idx: number): string {
     let name = "";
     let n = idx;
@@ -1166,12 +1280,13 @@ private editingCellInstance: Cell | null = null;
     // Drag rectangle (range selection)
     const rect = this.selMgr.getDragRect();
     if (rect) {
+      console.log('getSelectedCells drag rect:', rect);
       const { startRow, endRow, startCol, endCol } = rect;
       const cells: (string | number)[][] = [];
       for (let r = startRow; r <= endRow; r++) {
         const row: (string | number)[] = [];
         for (let c = startCol; c <= endCol; c++) {
-          row.push(this.getCell(r, c).getValue());
+          row.push(this.getCellValueIfExists(r, c));
         }
         cells.push(row);
       }
@@ -1184,7 +1299,7 @@ private editingCellInstance: Cell | null = null;
     if (selectedRow !== null) {
       const row: (string | number)[] = [];
       for (let c = 0; c < COLS; c++) {
-        row.push(this.getCell(selectedRow, c).getValue());
+        row.push(this.getCellValueIfExists(selectedRow, c));
       }
       const stats = Aggregator.compute([row]);
       this.updateStatusBar(stats);
@@ -1195,10 +1310,10 @@ private editingCellInstance: Cell | null = null;
     if (selectedCol !== null) {
       const col: (string | number)[] = [];
       for (let r = 0; r < ROWS; r++) {
-        col.push(this.getCell(r, selectedCol).getValue());
+        col.push(this.getCellValueIfExists(r, selectedCol));
       }
       // Aggregator expects 2D array
-      const stats = Aggregator.compute(col.map(v => [v]));
+      const stats = Aggregator.compute(col.map((v) => [v]));
       this.updateStatusBar(stats);
       return;
     }
@@ -1206,13 +1321,13 @@ private editingCellInstance: Cell | null = null;
     const selectedCell = this.selMgr.getSelectedCell();
     if (selectedCell) {
       const { row, col } = selectedCell;
-      const value = this.getCell(row, col).getValue();
+      const value = this.getCellValueIfExists(row, col);
       const stats = Aggregator.compute([[value]]);
       this.updateStatusBar(stats);
       return;
     }
     // If nothing is selected, clear status bar
-    this.updateStatusBar({ sum: '', count: '', average: '', min: '', max: '' });
+    this.updateStatusBar({ sum: "", count: "", average: "", min: "", max: "" });
   }
 
   private updateStatusBar(stats: any): void {
@@ -1223,11 +1338,13 @@ private editingCellInstance: Cell | null = null;
       <span><strong>AVERAGE:</strong> ${stats.average}</span>
       <span><strong>MIN:</strong> ${stats.min}</span>
       <span><strong>MAX:</strong> ${stats.max}</span>
-      `
+      `;
   }
 
   private onFontSizeChange(): void {
-    const fontSizeSelect = document.getElementById("fontSizeSelect") as HTMLSelectElement;
+    const fontSizeSelect = document.getElementById(
+      "fontSizeSelect"
+    ) as HTMLSelectElement;
     const newSize = parseInt(fontSizeSelect.value);
     this.applyFontSizeToSelection(newSize);
   }
@@ -1253,7 +1370,7 @@ private editingCellInstance: Cell | null = null;
       const command = new FontSizeCommand(cell, newSize);
       this.commandManager.execute(command);
     }
-    
+
     this.scheduleRender();
   }
 
@@ -1266,7 +1383,7 @@ private editingCellInstance: Cell | null = null;
       const command = new BoldCommand(cell, isBold);
       this.commandManager.execute(command);
     }
-    
+
     this.updateToolbarState();
     this.scheduleRender();
   }
@@ -1280,50 +1397,76 @@ private editingCellInstance: Cell | null = null;
       const command = new ItalicCommand(cell, isItalic);
       this.commandManager.execute(command);
     }
-    
+
     this.updateToolbarState();
     this.scheduleRender();
   }
 
   private getSelectedCells(): Cell[] {
     const cells: Cell[] = [];
-    
+
     // Check for drag selection
     const rect = this.selMgr.getDragRect();
     if (rect) {
+      console.log('getSelectedCells drag rect:', rect);
+      // Multi-column selection by dragging column headers
+      if (rect.startRow === 0 && rect.endRow === 0 && rect.startCol !== rect.endCol) {
+        for (let c = rect.startCol; c <= rect.endCol; c++) {
+          for (let r = 0; r < ROWS; r++) {
+            const cell = this.getCellIfExists(r, c);
+            if (cell) cells.push(cell);
+          }
+        }
+        return cells;
+      }
+      // Multi-row selection by dragging row headers
+      if (rect.startCol === 0 && rect.endCol === 0 && rect.startRow !== rect.endRow) {
+        for (let r = rect.startRow; r <= rect.endRow; r++) {
+          for (let c = 0; c < COLS; c++) {
+            const cell = this.getCellIfExists(r, c);
+            if (cell) cells.push(cell);
+          }
+        }
+        return cells;
+      }
+      // Normal rectangle selection
       for (let r = rect.startRow; r <= rect.endRow; r++) {
         for (let c = rect.startCol; c <= rect.endCol; c++) {
-          cells.push(this.getCell(r, c));
+          const cell = this.getCellIfExists(r, c);
+          if (cell) cells.push(cell);
         }
       }
       return cells;
     }
-    
+
     // Check for row selection
     const selectedRow = this.selMgr.getSelectedRow();
     if (selectedRow !== null) {
       for (let c = 0; c < COLS; c++) {
-        cells.push(this.getCell(selectedRow, c));
+        const cell = this.getCellIfExists(selectedRow, c);
+        if (cell) cells.push(cell);
       }
       return cells;
     }
-    
+
     // Check for column selection
     const selectedCol = this.selMgr.getSelectedCol();
     if (selectedCol !== null) {
       for (let r = 0; r < ROWS; r++) {
-        cells.push(this.getCell(r, selectedCol));
+        const cell = this.getCellIfExists(r, selectedCol);
+        if (cell) cells.push(cell);
       }
       return cells;
     }
-    
+
     // Check for single cell selection
     const selectedCell = this.selMgr.getSelectedCell();
     if (selectedCell) {
-      cells.push(this.getCell(selectedCell.row, selectedCell.col));
+      const cell = this.getCellIfExists(selectedCell.row, selectedCell.col);
+      if (cell) cells.push(cell);
       return cells;
     }
-    
+
     return cells;
   }
 
@@ -1331,33 +1474,43 @@ private editingCellInstance: Cell | null = null;
     const selectedCells = this.getSelectedCells();
     if (selectedCells.length === 0) {
       // Reset toolbar to default state
-      const fontSizeSelect = document.getElementById("fontSizeSelect") as HTMLSelectElement;
+      const fontSizeSelect = document.getElementById(
+        "fontSizeSelect"
+      ) as HTMLSelectElement;
       const boldBtn = document.getElementById("boldBtn")!;
       const italicBtn = document.getElementById("italicBtn")!;
-      
+
       fontSizeSelect.value = "14";
       boldBtn.classList.remove("active");
       italicBtn.classList.remove("active");
       return;
     }
-    
+
     // Check if all selected cells have the same formatting
     const firstCell = selectedCells[0];
-    const allSameSize = selectedCells.every(cell => cell.getFontSize() === firstCell.getFontSize());
-    const allSameBold = selectedCells.every(cell => cell.getIsBold() === firstCell.getIsBold());
-    const allSameItalic = selectedCells.every(cell => cell.getIsItalic() === firstCell.getIsItalic());
-    
+    const allSameSize = selectedCells.every(
+      (cell) => cell.getFontSize() === firstCell.getFontSize()
+    );
+    const allSameBold = selectedCells.every(
+      (cell) => cell.getIsBold() === firstCell.getIsBold()
+    );
+    const allSameItalic = selectedCells.every(
+      (cell) => cell.getIsItalic() === firstCell.getIsItalic()
+    );
+
     // Update toolbar state
-    const fontSizeSelect = document.getElementById("fontSizeSelect") as HTMLSelectElement;
+    const fontSizeSelect = document.getElementById(
+      "fontSizeSelect"
+    ) as HTMLSelectElement;
     const boldBtn = document.getElementById("boldBtn")!;
     const italicBtn = document.getElementById("italicBtn")!;
-    
+
     if (allSameSize) {
       fontSizeSelect.value = firstCell.getFontSize().toString();
     } else {
       fontSizeSelect.value = "14"; // Default if mixed
     }
-    
+
     if (allSameBold) {
       if (firstCell.getIsBold()) {
         boldBtn.classList.add("active");
@@ -1367,7 +1520,7 @@ private editingCellInstance: Cell | null = null;
     } else {
       boldBtn.classList.remove("active"); // Mixed state
     }
-    
+
     if (allSameItalic) {
       if (firstCell.getIsItalic()) {
         italicBtn.classList.add("active");
@@ -1377,5 +1530,25 @@ private editingCellInstance: Cell | null = null;
     } else {
       italicBtn.classList.remove("active"); // Mixed state
     }
+  }
+
+  /**
+   * Gets the cell object at the specified row and column, creating it if it doesn't exist.
+   * Only use this for editing/import logic.
+   * @param {number} row The row index.
+   * @param {number} col The column index.
+   * @returns {Cell} The cell object.
+   */
+  public getCell(row: number, col: number): Cell {
+    let rowMap = this.cells.get(row);
+    if (!rowMap) {
+      rowMap = new Map();
+      this.cells.set(row, rowMap);
+    }
+    if (!rowMap.has(col)) {
+      rowMap.set(col, new Cell(row, col));
+      // console.log("Cells created:", this.countCreatedCells());
+    }
+    return rowMap.get(col)!;
   }
 }

@@ -1,6 +1,7 @@
 import { RowManager } from "./RowManager";
 import { ColumnManager } from "./ColumnManager";
 
+
 export interface DragRect {
   startRow: number;
   endRow: number;
@@ -26,9 +27,10 @@ export class SelectionManager {
   private selectedCol: number | null = null;
 
   private dragStart: { row: number; col: number } | null = null;
-  private dragEnd: { row: number; col: number } | null = null;
+  private dragEnd: { row: number; col: number|null } | null = null;
   private dragging = false;
   private dragRect: DragRect | null = null; // Store the final drag rectangle
+  private dragRange: { startRow: number | null; endRow: number | null; startCol: number | null; endCol: number | null; } | null = null;
 
   public clear(): void {
     this.selectedCell = null;
@@ -43,6 +45,7 @@ export class SelectionManager {
   public clearSelection(): void {
     this.clear();
   }
+  
 
   public isDragging(): boolean {
     return this.dragging;
@@ -57,7 +60,18 @@ export class SelectionManager {
     this.clear();
     this.selectedRow = row;
   }
-
+  selectColumns(startCol: number, endCol: number): void {
+    this.selectedCell = null;
+    this.selectedRow = null;
+    this.selectedCol = null;
+    this.dragRange = {
+      startRow: null,
+      endRow: null,
+      startCol,
+      endCol,
+    };
+  }
+  
   public selectColumn(col: number): void {
     this.clear();
     this.selectedCol = col;
@@ -70,9 +84,9 @@ export class SelectionManager {
     this.dragEnd = { row, col };
   }
 
-  public updateDrag(row: number, col: number): void {
+  public updateDrag(row: number, col: number | null): void {
     if (!this.dragging || !this.dragStart) return;
-    this.dragEnd = { row, col };
+    this.dragEnd = { row, col: col! };
   }
 
   public endDrag(): void {
@@ -82,8 +96,8 @@ export class SelectionManager {
       this.dragRect = {
         startRow: Math.min(this.dragStart.row, this.dragEnd.row),
         endRow: Math.max(this.dragStart.row, this.dragEnd.row),
-        startCol: Math.min(this.dragStart.col, this.dragEnd.col),
-        endCol: Math.max(this.dragStart.col, this.dragEnd.col),
+        startCol: Math.min(this.dragStart.col, this.dragEnd.col!),
+        endCol: Math.max(this.dragStart.col, this.dragEnd.col!),
       };
     }
   }
@@ -111,8 +125,8 @@ export class SelectionManager {
     return {
       startRow: Math.min(this.dragStart.row, this.dragEnd.row),
       endRow: Math.max(this.dragStart.row, this.dragEnd.row),
-      startCol: Math.min(this.dragStart.col, this.dragEnd.col),
-      endCol: Math.max(this.dragStart.col, this.dragEnd.col),
+      startCol: Math.min(this.dragStart.col, this.dragEnd.col!),
+      endCol: Math.max(this.dragStart.col, this.dragEnd.col!),
     };
   }
 
@@ -135,6 +149,7 @@ export class SelectionManager {
     rowMgr: RowManager,
     colMgr: ColumnManager,
     HEADER_SIZE: number,
+    rowHeaderWidth: number,
     // canvasWidth: number,
     // canvasHeight: number,
     scrollX = 0,
@@ -150,7 +165,7 @@ export class SelectionManager {
     // Highlight entire column (border only, full height)
     if (this.selectedCol !== null) {
       const col = this.selectedCol;
-      const x = HEADER_SIZE + colMgr.getX(col) - scrollX;
+      const x = rowHeaderWidth + colMgr.getX(col) - scrollX;
       const w = colMgr.getWidth(col);
       const y = 0;
       const h = rowMgr.getTotalHeight() + HEADER_SIZE;
@@ -166,7 +181,7 @@ export class SelectionManager {
     // Highlight entire row (border only, full width)
     if (this.selectedRow !== null) {
       const row = this.selectedRow;
-      const x = HEADER_SIZE ;
+      const x = rowHeaderWidth ;
       const y = HEADER_SIZE + rowMgr.getY(row) - scrollY;
       const w = colMgr.getTotalWidth();
       const h = rowMgr.getHeight(row);
@@ -182,23 +197,67 @@ export class SelectionManager {
     // Drag rectangle (range selection, with fill and border)
     const rect = this.getDragRect();
     if (rect) {
-      let x1 = HEADER_SIZE + colMgr.getX(rect.startCol) - scrollX;
+      // Highlight all column headers in the drag rect with black background
+      for (let c = rect.startCol; c <= rect.endCol; c++) {
+        const x = rowHeaderWidth + colMgr.getX(c) - scrollX;
+        const w = colMgr.getWidth(c);
+        ctx.save();
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(x, 0, w, HEADER_SIZE);
+        ctx.restore();
+      }
+      // Multi-column selection by dragging column headers
+      // Draw a single rectangle covering the whole selected columns area
+      // Draw a single big rectangle covering all selected columns (not one per column)
+      if (rect.startRow === 0 && rect.endRow === 0 && rect.startCol !== rect.endCol) {
+        // Find leftmost and rightmost columns
+        const leftCol = Math.min(rect.startCol, rect.endCol);
+        const rightCol = Math.max(rect.startCol, rect.endCol);
+        const x = rowHeaderWidth + colMgr.getX(leftCol) - scrollX;
+        const y = 0;
+        const w = colMgr.getX(rightCol) + colMgr.getWidth(rightCol) - colMgr.getX(leftCol);
+        const h = rowMgr.getTotalHeight() + HEADER_SIZE;
+        ctx.save();
+        ctx.strokeStyle = "#107C41";
+        ctx.fillStyle = "#107C410a";
+        ctx.fillRect(x + 0.5, y, w - 1, h);
+        ctx.lineWidth = 2 / window.devicePixelRatio;
+        ctx.strokeRect(x + 0.5, y, w - 1, h);
+        ctx.restore();
+        return;
+      }
+      // Multi-row selection by dragging row headers
+      if (rect.startCol === 0 && rect.endCol === 0 && rect.startRow !== rect.endRow) {
+        
+          const firstRow = Math.min(rect.startRow, rect.endRow);
+          const lastRow = Math.max(rect.startRow, rect.endRow);
+          const y = rowHeaderWidth + rowMgr.getY(firstRow) - scrollY;
+          const h = rowMgr.getY( lastRow) - rowMgr.getY(firstRow) + rowMgr.getHeight(lastRow);
+          const x = 0;
+          const w = colMgr.getTotalWidth() + HEADER_SIZE;
+          ctx.save();
+          ctx.strokeStyle = "#107C41";
+          ctx.fillStyle = "#107C410a";
+          ctx.fillRect(x, y + 0.5, w, h - 1);
+          ctx.lineWidth = 2 / window.devicePixelRatio;
+          ctx.strokeRect(x, y + 0.5, w, h - 1);
+          ctx.restore();
+        
+        return;
+      }
+      // Normal rectangle selection
+      let x1 =  rowHeaderWidth + colMgr.getX(rect.startCol) - scrollX;
       let y1 = HEADER_SIZE + rowMgr.getY(rect.startRow) - scrollY;
-      let x2 = HEADER_SIZE + colMgr.getX(rect.endCol) - scrollX + colMgr.getWidth(rect.endCol);
+      let x2 = rowHeaderWidth + colMgr.getX(rect.endCol) - scrollX + colMgr.getWidth(rect.endCol);
       let y2 = HEADER_SIZE + rowMgr.getY(rect.endRow) - scrollY + rowMgr.getHeight(rect.endRow);
       // Clamp to HEADER_SIZE so selection never goes into header
       x1 = Math.max(x1, HEADER_SIZE);
       y1 = Math.max(y1, HEADER_SIZE);
       
       ctx.save();
-      // Draw fill
-      // ctx.fillStyle = "rgba(16, 124, 65, 0.1)"; // Light green fill
-      // ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
       ctx.fillStyle = "#107C410a";
       ctx.fillRect(x1 + 0.5, y1 + 0.5, x2 - x1 - 1, y2 - y1 - 1);
-      // Draw border
       ctx.strokeStyle = "#107C41";
-
       ctx.lineWidth = 2/window.devicePixelRatio;
       ctx.strokeRect(x1 + 1, y1 + 1.5, x2 - x1 - 1, y2 - y1 - 1);
       ctx.restore();
@@ -207,7 +266,7 @@ export class SelectionManager {
     // Selected cell border only (Excel style, no fill)
     if (this.selectedCell) {
       const { row, col } = this.selectedCell;
-      const x = HEADER_SIZE + colMgr.getX(col) - scrollX;
+      const x = rowHeaderWidth + colMgr.getX(col) - scrollX;
       const y = HEADER_SIZE + rowMgr.getY(row) - scrollY;
       const w = colMgr.getWidth(col);
       const h = rowMgr.getHeight(row);
