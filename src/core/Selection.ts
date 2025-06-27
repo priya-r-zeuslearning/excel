@@ -31,7 +31,9 @@ export class SelectionManager {
   private dragging = false;
   private dragRect: DragRect | null = null; // Store the final drag rectangle
   private dragRange: { startRow: number | null; endRow: number | null; startCol: number | null; endCol: number | null; } | null = null;
-
+  /**
+   * Clears all selection and drag state.
+   */
   public clear(): void {
     this.selectedCell = null;
     this.selectedRow = null;
@@ -42,24 +44,43 @@ export class SelectionManager {
     this.dragRect = null;
   }
 
+  /**
+   * Clears all selection and drag state.
+   */
   public clearSelection(): void {
     this.clear();
   }
-  
-
+  /**
+   * Checks if the selection is dragging.
+   * @returns true if the selection is dragging, false otherwise
+   */
   public isDragging(): boolean {
     return this.dragging;
   }
 
+  /**
+   * Selects a cell.
+   * @param row the row of the cell
+   * @param col the column of the cell
+   */
   public selectCell(row: number, col: number): void {
     this.clear();
     this.selectedCell = { row, col };
   }
 
+  /**
+   * Selects a row.
+   * @param row the row to select
+   */
   public selectRow(row: number): void {
     this.clear();
     this.selectedRow = row;
   }
+  /**
+   * Selects a range of columns.
+   * @param startCol the start column of the range
+   * @param endCol the end column of the range
+   */
   selectColumns(startCol: number, endCol: number): void {
     this.selectedCell = null;
     this.selectedRow = null;
@@ -71,12 +92,20 @@ export class SelectionManager {
       endCol,
     };
   }
-  
+  /**
+   * Selects a column.
+   * @param col the column to select
+   */
   public selectColumn(col: number): void {
     this.clear();
     this.selectedCol = col;
   }
 
+  /**
+   * Starts a drag operation.
+   * @param row the row of the drag start
+   * @param col the column of the drag start
+   */
   public startDrag(row: number, col: number): void {
     this.clear();
     this.dragging = true;
@@ -84,11 +113,19 @@ export class SelectionManager {
     this.dragEnd = { row, col };
   }
 
+  /**
+   * Updates the drag operation.
+   * @param row the row of the drag end
+   * @param col the column of the drag end
+   */
   public updateDrag(row: number, col: number | null): void {
     if (!this.dragging || !this.dragStart) return;
     this.dragEnd = { row, col: col! };
   }
 
+  /**
+   * Ends a drag operation.
+   */
   public endDrag(): void {
     this.dragging = false;
     // Keep the drag rectangle for header highlighting
@@ -102,18 +139,34 @@ export class SelectionManager {
     }
   }
 
+  /**
+   * Gets the selected cell.
+   * @returns the selected cell
+   */
   public getSelectedCell() {
     return this.selectedCell;
   }
 
+  /**
+   * Gets the selected row.
+   * @returns the selected row
+   */
   public getSelectedRow() {
     return this.selectedRow;
   }
 
+  /**
+   * Gets the selected column.
+   * @returns the selected column
+   */
   public getSelectedCol() {
     return this.selectedCol;
   }
 
+  /**
+   * Gets the drag rectangle.
+   * @returns the drag rectangle
+   */
   public getDragRect(): DragRect | null {
     // Return the stored drag rectangle if not currently dragging
     if (!this.dragging && this.dragRect) {
@@ -251,7 +304,7 @@ export class SelectionManager {
       let x2 = rowHeaderWidth + colMgr.getX(rect.endCol) - scrollX + colMgr.getWidth(rect.endCol);
       let y2 = HEADER_SIZE + rowMgr.getY(rect.endRow) - scrollY + rowMgr.getHeight(rect.endRow);
       // Clamp to HEADER_SIZE so selection never goes into header
-      x1 = Math.max(x1, HEADER_SIZE);
+      x1 = Math.max(x1, rowHeaderWidth);
       y1 = Math.max(y1, HEADER_SIZE);
       
       ctx.save();

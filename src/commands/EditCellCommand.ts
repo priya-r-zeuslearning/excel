@@ -19,14 +19,21 @@ export class EditCellCommand implements Command {
         this.oldValue = oldValue;
         this.newValue = newValue;
     }
-    
-
+    /**
+     * Executes the edit cell command.
+     */
     execute(): void {
         this.cell.setValue(this.newValue);
+        // Recalculate formulas after changing a cell value
+        this.grid.recalculateFormulas();
     }
-    
+    /**
+     * Undoes the edit cell command.
+     */
     undo(): void {
         this.cell.setValue(this.oldValue);
+        // Recalculate formulas after undoing a cell value change
+        this.grid.recalculateFormulas();
     }
     
 }

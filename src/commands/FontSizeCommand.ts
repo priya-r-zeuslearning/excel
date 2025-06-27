@@ -12,14 +12,23 @@ export class FontSizeCommand implements Command {
     this.newSize = newSize;
   }
 
+  /**
+   * Executes the font size command.
+   */
   execute(): void {
     this.cell.setFontSize(this.newSize);
   }
 
+  /**
+   * Undoes the font size command.
+   */
   undo(): void {
     this.cell.setFontSize(this.oldSize);
   }
 
+  /**
+   * Redoes the font size command.
+   */
   redo(): void {
     this.cell.setFontSize(this.newSize);
   }

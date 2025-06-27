@@ -6,7 +6,10 @@ export class DataImporter {
   constructor(grid: Grid) {
     this.grid = grid;
   }
-
+/**
+ * Imports data from a JSON array.
+ * @param data the data to import
+ */
   importFromJSON(data: any[][]): void {
     this.grid.beginBatchUpdate(); 
 

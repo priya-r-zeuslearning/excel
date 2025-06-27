@@ -11,6 +11,8 @@ export class Cell {
     public  col: number;
     /** @type {string} The value stored in the cell. */
     private value: string = "";
+    /** @type {string} The formula stored in the cell (if any). */
+    private formula: string = "";
     /** @type {number} The font size of the cell. */
     private fontSize: number = 14;
     /** @type {boolean} Whether the cell text is bold. */
@@ -35,18 +37,63 @@ export class Cell {
     getValue(): string {
         return this.value;
     }
+
+    /**
+     * Gets the formula of the cell.
+     * @returns {string} The cell formula.
+     */
+    getFormula(): string {
+        return this.formula;
+    }
+
+    /**
+     * Checks if the cell contains a formula.
+     * @returns {boolean} True if the cell has a formula.
+     */
+    hasFormula(): boolean {
+        return this.formula !== "";
+    }
+
+    /**
+     * Checks if a value looks like a formula.
+     * @param {string} value The value to check.
+     * @returns {boolean} True if the value is a formula.
+     */
+    static isFormula(value: string): boolean {
+        return value.startsWith("=") && value.length > 1;
+    }
+
     public clear(): void {
         this.value = "";
+        this.formula = "";
         this.fontSize = 14;
         this.isBold = false;
         this.isItalic = false;
     }
+
     /**
      * Sets the value of the cell.
      * @param {string} value The new value.
      */
     setValue(value: string): void {
         this.value = value;
+        // Clear formula if setting a non-formula value
+      
+    }
+    /**
+     * Removes the formula from the cell.
+     */
+    removeFormula(): void {
+        this.value = "";
+        this.formula = "";
+    }
+    /**
+     * Sets the formula of the cell.
+     * @param {string} formula The new formula.
+     */
+    setFormula(formula: string): void {
+        this.formula = formula;
+        this.value = formula; // Store the formula as the display value
     }
 
     /**

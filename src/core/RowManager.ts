@@ -75,9 +75,6 @@ export class RowManager {
       }
     }
   
-    /** Get total height of all rows */
-    // getTotalHeight(): number {
-    //   return this.rowHeights.reduce((a, b) => a + b, 0);
-    // }
+   
   }
   

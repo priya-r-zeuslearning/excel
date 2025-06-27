@@ -12,14 +12,23 @@ export class BoldCommand implements Command {
     this.newBold = newBold;
   }
 
+  /**
+   * Executes the bold command.
+   */
   execute(): void {
     this.cell.setIsBold(this.newBold);
   }
 
+  /**
+   * Undoes the bold command.
+   */
   undo(): void {
     this.cell.setIsBold(this.oldBold);
   }
 
+  /**
+   * Redoes the bold command.
+   */
   redo(): void {
     this.cell.setIsBold(this.newBold);
   }
