@@ -20,8 +20,8 @@ import { getCoordinates } from "../utils/CellRange";
 const DEFAULT_COL_WIDTH = 100;
 const DEFAULT_ROW_HEIGHT = 30;
 
-const ROWS = 100_000;
-const COLS = 5000;
+export const ROWS = 100_000;
+export const COLS = 5000;
 
 /** How many extra rows / columns to draw outside the viewport */
 const RENDER_BUFFER_PX = 200;
@@ -821,7 +821,19 @@ export class Grid {
         this.computeSelectionStats();
       }
     }
-
+    if(e.ctrlKey && e.key === "a"){
+      this.selMgr.selectAll();
+      this.scheduleRender();
+      return;
+    }
+    if (e.ctrlKey && e.key === "b") {
+      this.onBoldToggle();
+      return;
+    }
+    if (e.ctrlKey && e.key === "i") {
+      this.onItalicToggle();
+      return;
+    }
     if (e.key === "Backspace") {
       if (this.selMgr.getSelectedCell() !== null) {
         const cell = this.getCell(
@@ -968,10 +980,7 @@ export class Grid {
       return { startRow: row, startCol: col, endRow: row, endCol: col };
     }
     
-    //start the animation as soon as the start of the formula is typed
-    if (cleanFormula.startsWith("=")) {
-      this.startMarchingAntsAnimation();
-    }
+    // Match function with range like SUM(A1:B5), COUNT(A1:A10), etc.
     const functionMatch = cleanFormula.match(/^\w+\(([A-Z]+[0-9]+):([A-Z]+[0-9]+)\)$/i);
     if (functionMatch) {
       const [, start, end] = functionMatch;
@@ -1134,16 +1143,16 @@ export class Grid {
   
   public drawMarchingAnts(startRow: number, startCol: number, endRow: number, endCol: number): void {
     const ctx = this.canvas.getContext("2d")!;
-    const x1 = HEADER_SIZE + this.colMgr.getX(startCol) - this.container.scrollLeft;
+    const x1 = this.rowHeaderWidth + this.colMgr.getX(startCol) - this.container.scrollLeft;
     const y1 = HEADER_SIZE + this.rowMgr.getY(startRow) - this.container.scrollTop;
-    const x2 = HEADER_SIZE + this.colMgr.getX(endCol) + this.colMgr.getWidth(endCol) - this.container.scrollLeft;
+    const x2 = this.rowHeaderWidth + this.colMgr.getX(endCol) + this.colMgr.getWidth(endCol) - this.container.scrollLeft;
     const y2 = HEADER_SIZE + this.rowMgr.getY(endRow) + this.rowMgr.getHeight(endRow) - this.container.scrollTop;
   
     ctx.save();
     ctx.setLineDash([4, 2]); // Dash pattern
     ctx.lineDashOffset = this.dashOffset;
-    ctx.strokeStyle = "#107A8C";
-    ctx.lineWidth = 1/dpr;
+    ctx.strokeStyle = "#217346";
+    ctx.lineWidth = 3/dpr;
     ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
     ctx.restore();
   }
@@ -1341,6 +1350,12 @@ export class Grid {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     const { firstRow, lastRow, firstCol, lastCol } = this.getVisibleRange();
     
+    // Draw marching ants for formula range if active
+    if (this.formulaRange) {
+      const { startRow, startCol, endRow, endCol } = this.formulaRange;
+      this.drawMarchingAnts(startRow, startCol, endRow, endCol);
+    }
+    
     // Draw cells (only grid lines, not filled rectangles)
     let yPos = HEADER_SIZE + this.rowMgr.getY(firstRow) - scrollY;
     for (let r = firstRow; r <= lastRow; r++) {
@@ -1352,7 +1367,7 @@ export class Grid {
         
         // Draw search highlight if this cell is a search result
         if (this.isSearchResult(r, c)) {
-          this.ctx.fillStyle = "rgba(255, 255, 0, 0.3)";
+          this.ctx.fillStyle = "rgba(34, 168, 0, 0.12)";
           this.ctx.fillRect(xPos, yPos, colW, rowH);
         }
         

@@ -1,5 +1,6 @@
 import { RowManager } from "./RowManager";
 import { ColumnManager } from "./ColumnManager";
+import { ROWS, COLS } from "./grid";
 
 
 export interface DragRect {
@@ -57,7 +58,17 @@ export class SelectionManager {
   public isDragging(): boolean {
     return this.dragging;
   }
-
+public selectAll(): void {
+  this.selectedCell = null;
+  this.selectedRow = null;
+  this.selectedCol = null;
+  this.dragRange = {
+    startRow: 0,
+    endRow: ROWS - 1,
+    startCol: 0,
+    endCol: COLS - 1,
+  };
+}
   /**
    * Selects a cell.
    * @param row the row of the cell
