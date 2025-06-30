@@ -447,8 +447,8 @@ export class Grid {
     const mouseY = evt.clientY - rect.top;
     const { x, y } = this.getMousePos(evt);
 
-    /* 1 Header‑edge resize checks */
-    if (mouseY < HEADER_SIZE) {
+    /* 1 Column header area (top header bar) - resize and drag checks */
+    if (mouseY < HEADER_SIZE && mouseX >= HEADER_SIZE) {
       const { col, within } = this.findColumnByOffset(x - HEADER_SIZE);
       if (within >= this.colMgr.getWidth(col) - RESIZE_GUTTER) {
         this.resizingCol = col;
@@ -466,18 +466,18 @@ export class Grid {
         return;
       }
       // --- Multi-column drag selection start ---
-      if (mouseX >= HEADER_SIZE) {
-        const { col } = this.findColumnByOffset(x - HEADER_SIZE);
-        this.isColHeaderDrag = true;
-        this.isMouseDown = true;
-        this.dragStartColHeader = col;
-        this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
-        this._colHeaderDragHasDragged = false; // helper flag
-        // Do NOT select yet; wait for mouseup or drag
-        return;
-      }
+      const { col: colIndex } = this.findColumnByOffset(x - HEADER_SIZE);
+      this.isColHeaderDrag = true;
+      this.isMouseDown = true;
+      this.dragStartColHeader = colIndex;
+      this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
+      this._colHeaderDragHasDragged = false; // helper flag
+      // Do NOT select yet; wait for mouseup or drag
+      return;
     }
-    if (mouseX < HEADER_SIZE) {
+
+    /* 2 Row header area (left header bar) - resize and drag checks */
+    if (mouseX < HEADER_SIZE && mouseY >= HEADER_SIZE) {
       const { row, within } = this.findRowByOffset(y - HEADER_SIZE);
       if (within >= this.rowMgr.getHeight(row) - RESIZE_GUTTER) {
         this.resizingRow = row;
@@ -493,18 +493,16 @@ export class Grid {
         return;
       }
       // --- Multi-row drag selection start ---
-      if (mouseY >= HEADER_SIZE) {
-        this.isRowHeaderDrag = true;
-        this.isMouseDown = true;
-        this.dragStartRowHeader = row;
-        this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
-        this._rowHeaderDragHasDragged = false;
-        // Do NOT select yet; wait for mouseup or drag
-        return;
-      }
+      this.isRowHeaderDrag = true;
+      this.isMouseDown = true;
+      this.dragStartRowHeader = row;
+      this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
+      this._rowHeaderDragHasDragged = false;
+      // Do NOT select yet; wait for mouseup or drag
+      return;
     }
 
-    /* 3 Inside grid – start drag selection (or single cell) */
+    /* 3 Data area (including row 0) – start drag selection (or single cell) */
     if (mouseX >= HEADER_SIZE && mouseY >= HEADER_SIZE) {
       const { col } = this.findColumnByOffset(x - HEADER_SIZE);
       const { row } = this.findRowByOffset(y - HEADER_SIZE);
@@ -517,6 +515,7 @@ export class Grid {
         // Prepare for possible drag selection
         this.isMouseDown = true;
         this.isColHeaderDrag = false;
+        this.isRowHeaderDrag = false;
         this.dragStartCell = { row, col };
         this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
       }
@@ -562,7 +561,7 @@ export class Grid {
       }
     }
 
-    // --- Multi-column drag selection update ---
+    // --- Multi-column drag selection update (highest priority) ---
     if (
       this.isColHeaderDrag &&
       this.isMouseDown &&
@@ -574,17 +573,30 @@ export class Grid {
           // threshold in pixels
           this.selMgr.startDrag(0, this.dragStartColHeader);
           this._colHeaderDragHasDragged = true;
+          // Clear previous selected columns and add the starting column
+          this.selMgr.clearSelectedColumns();
+          this.selMgr.addSelectedColumn(this.dragStartColHeader);
         }
       }
       if (this.selMgr.isDragging()) {
         const { col } = this.findColumnByOffset(x - HEADER_SIZE);
         this.selMgr.updateDrag(0, col);
+        
+        // Update selected columns array based on drag range
+        const startCol = Math.min(this.dragStartColHeader!, col);
+        const endCol = Math.max(this.dragStartColHeader!, col);
+        const selectedCols: number[] = [];
+        for (let c = startCol; c <= endCol; c++) {
+          selectedCols.push(c);
+        }
+        this.selMgr.setSelectedColumns(selectedCols);
+        
         this.scheduleRender();
       }
       return;
     }
 
-    // --- Multi-row drag selection update ---
+    // --- Multi-row drag selection update (second priority) ---
     if (
       this.isRowHeaderDrag &&
       this.isMouseDown &&
@@ -596,20 +608,31 @@ export class Grid {
           // threshold in pixels
           this.selMgr.startDrag(this.dragStartRowHeader, 0);
           this._rowHeaderDragHasDragged = true;
+          this.selMgr.clearSelectedRows();
+          this.selMgr.addSelectedRow(this.dragStartRowHeader);
         }
       }
       if (this.selMgr.isDragging()) {
         const { row } = this.findRowByOffset(y - HEADER_SIZE);
-        this.selMgr.updateDrag(row, null);
+        this.selMgr.updateDrag(row, 0);
+        const startRow = Math.min(this.dragStartRowHeader!, row);
+        const endRow = Math.max(this.dragStartRowHeader!, row);
+        const selectedRows: number[] = [];
+        for (let r = startRow; r <= endRow; r++) {
+          selectedRows.push(r);
+        }
+        this.selMgr.setSelectedRows(selectedRows);
         this.scheduleRender();
       }
       return;
     }
 
-    /* Drag‑to‑select update (cells) */
+    /* Drag‑to‑select update (cells) - lowest priority */
     if (
       this.isMouseDown &&
       this.dragStartCell &&
+      !this.isColHeaderDrag &&
+      !this.isRowHeaderDrag &&
       x >= HEADER_SIZE &&
       y >= HEADER_SIZE
     ) {
@@ -631,26 +654,26 @@ export class Grid {
     }
 
     /* Header hover tint ---------------------------------------------- */
-    if (!this.selMgr.isDragging()) {
-      if (y < HEADER_SIZE && x >= HEADER_SIZE) {
-        // column header
-        this.scheduleRender(); // ensure repaint
-        this.ctx.fillStyle = "rgba(173,205,255,0.25)";
-        const { col } = this.findColumnByOffset(x - HEADER_SIZE);
-        const scrollX = this.container.scrollLeft;
-        const hx = HEADER_SIZE + this.colMgr.getX(col) - scrollX;
-        this.ctx.fillRect(hx, 0, this.colMgr.getWidth(col), HEADER_SIZE);
-      }
-      if (x < HEADER_SIZE && y >= HEADER_SIZE) {
-        // row header
-        this.scheduleRender();
-        this.ctx.fillStyle = "rgba(173,205,255,0.25)";
-        const { row } = this.findRowByOffset(y - HEADER_SIZE);
-        const scrollY = this.container.scrollTop;
-        const hy = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
-        this.ctx.fillRect(0, hy, HEADER_SIZE, this.rowMgr.getHeight(row));
-      }
-    }
+    // if (!this.selMgr.isDragging()) {
+    //   if (y < HEADER_SIZE && x >= HEADER_SIZE) {
+    //     // column header
+    //     this.scheduleRender(); // ensure repaint
+    //     this.ctx.fillStyle = "rgba(173,205,255,0.25)";
+    //     const { col } = this.findColumnByOffset(x - HEADER_SIZE);
+    //     const scrollX = this.container.scrollLeft;
+    //     const hx = HEADER_SIZE + this.colMgr.getX(col) - scrollX;
+    //     this.ctx.fillRect(hx, 0, this.colMgr.getWidth(col), HEADER_SIZE);
+    //   }
+    //   if (x < HEADER_SIZE && y >= HEADER_SIZE) {
+    //     // row header
+    //     this.scheduleRender();
+    //     this.ctx.fillStyle = "rgb(0, 0, 0)";
+    //     const { row } = this.findRowByOffset(y - HEADER_SIZE);
+    //     const scrollY = this.container.scrollTop;
+    //     const hy = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
+    //     this.ctx.fillRect(0, hy, HEADER_SIZE, this.rowMgr.getHeight(row));
+    //   }
+    // }
   }
 
   private onMouseDrag(evt: MouseEvent): void {
@@ -697,6 +720,8 @@ export class Grid {
       // If not dragged, treat as single column selection
       if (!this._colHeaderDragHasDragged && this.dragStartColHeader !== null) {
         this.selMgr.selectColumn(this.dragStartColHeader);
+        this.selMgr.clearSelectedColumns();
+        this.selMgr.addSelectedColumn(this.dragStartColHeader);
         this.scheduleRender();
       } else if (this.selMgr.isDragging()) {
         this.selMgr.endDrag();
@@ -716,6 +741,8 @@ export class Grid {
       // If not dragged, treat as single row selection
       if (!this._rowHeaderDragHasDragged && this.dragStartRowHeader !== null) {
         this.selMgr.selectRow(this.dragStartRowHeader);
+        this.selMgr.clearSelectedRows();
+        this.selMgr.addSelectedRow(this.dragStartRowHeader);
         this.scheduleRender();
       } else if (this.selMgr.isDragging()) {
         this.selMgr.endDrag();
@@ -736,7 +763,7 @@ export class Grid {
 
     // Finalize drag selection if we were dragging
     if (this.selMgr.isDragging()) {
-      this.selMgr.endDrag();
+        this.selMgr.endDrag();
       this.scheduleRender();
     }
 
@@ -764,8 +791,8 @@ export class Grid {
       // If dragging, anchor is dragStart, otherwise anchor is selected cell
       let anchorRow: number, anchorCol: number;
       if (this.selMgr.isDragging() && this.selMgr["dragStart"]) {
-        anchorRow = this.selMgr["dragStart"].row;
-        anchorCol = this.selMgr["dragStart"].col;
+        anchorRow = this.selMgr["dragStart"].row!;
+        anchorCol = this.selMgr["dragStart"].col!;
       } else if (selected) {
         anchorRow = selected.row;
         anchorCol = selected.col;
@@ -807,9 +834,9 @@ export class Grid {
       }
       if (e.shiftKey) {
         if (!this.selMgr.isDragging()) {
-          this.selMgr.startDrag(anchorRow, anchorCol);
+          this.selMgr.startDrag(anchorRow, anchorCol );
         }
-        this.selMgr.updateDrag(focusRow, focusCol);
+        this.selMgr.updateDrag(focusRow, focusCol  );
         this.scrollToCell(focusRow, focusCol);
         this.scheduleRender();
         return;
@@ -1560,26 +1587,30 @@ export class Grid {
     }
     if (
       (isColumn && selectedCol === index) ||
-      (!isColumn && selectedRow === index)
-    ) {
+      (!isColumn && selectedRow === index) )
+     {
       highlight = true;
     }
-    if (isColumn && selectedRow !== null) {
+    if (isColumn && selectedRow !== null || (!isColumn && this.selMgr.getSelectedColumns().length > 0)){
       highlight = true;
     }
-    if (!isColumn && selectedRow === index) {
-      highlight = true;
-      highlightColor = "#107C41";
-      highlightText = "#FFFFFF";
-      isBold = true;
-    }
-    if (isColumn && selectedCol === index) {
+    if ((!isColumn && selectedRow === index) || (isColumn && selectedCol === index)) {
       highlight = true;
       highlightColor = "#107C41";
       highlightText = "#FFFFFF";
       isBold = true;
     }
-    if (!isColumn && selectedCol !== null) {
+    if((this.selMgr.getSelectedColumns().includes(index) && isColumn) || (this.selMgr.getSelectedRows().includes(index) && !isColumn)) {
+      highlight = true;
+      highlightColor = "#107C41";
+      highlightText = "#FFFFFF";
+      isBold = true;
+      if (!isColumn) {
+        
+      }
+    }
+ 
+    if (!isColumn && selectedCol !== null || (isColumn && this.selMgr.getSelectedRows().length > 0)) {
       highlight = true;
     }
     this.ctx.fillStyle = "#f3f6fb";
@@ -1589,11 +1620,30 @@ export class Grid {
     this.ctx.strokeRect(0, 0, this.rowHeaderWidth, HEADER_SIZE);
     // Check drag selection
     if (dragRect) {
-      const inRange = isColumn
-        ? index >= dragRect.startCol && index <= dragRect.endCol
-        : index >= dragRect.startRow && index <= dragRect.endRow;
-      if (inRange) {
-        highlight = true;
+      // Only highlight headers based on the type of drag
+      if (this.selMgr.isDraggingHeader()) {
+        // For header drags, only highlight the appropriate header type
+        if (isColumn) {
+          // Column header drag - only highlight column headers
+          const inRange = index >= dragRect.startCol && index <= dragRect.endCol;
+          if (inRange) {
+            highlight = true;
+          }
+        } else {
+          // Row header drag - only highlight row headers
+          const inRange = index >= dragRect.startRow && index <= dragRect.endRow;
+          if (inRange) {
+            highlight = true;
+          }
+        }
+      } else {
+        // For data area drags, highlight both row and column headers that are in range
+        const inRange = isColumn
+          ? index >= dragRect.startCol && index <= dragRect.endCol
+          : index >= dragRect.startRow && index <= dragRect.endRow;
+        if (inRange) {
+          highlight = true;
+        }
       }
     }
 
@@ -1619,8 +1669,9 @@ export class Grid {
         ctx.lineTo(x, y + h);
       }
     } else {
+
       ctx.moveTo(x + w - 0.5, y);
-      ctx.lineTo(x + w - 0.5, y + h);
+      ctx.lineTo(x + w - 0.5, y + h -0.5);
       if (!highlight) {
         ctx.moveTo(x, y + h - 0.5);
         ctx.lineTo(x + w, y + h - 0.5);
@@ -1631,7 +1682,7 @@ export class Grid {
     // Draw text
     ctx.fillStyle = highlight ? highlightText : "#616161";
     if (isBold) {
-      ctx.font = "bold 14px Calibri, 'Segoe UI', sans-serif";
+      ctx.font = "bold 16px Calibri, 'Segoe UI', sans-serif";
     }
 
     ctx.textBaseline = "middle";
@@ -1874,30 +1925,29 @@ export class Grid {
   private getSelectedCells(): Cell[] {
     const cells: Cell[] = [];
 
-    // Check for drag selection
+    // Check for drag selection first
     const rect = this.selMgr.getDragRect();
     if (rect) {
-      console.log("getSelectedCells drag rect:", rect);
-      // Multi-column selection by dragging column headers
-      if (
-        rect.startRow === 0 &&
-        rect.endRow === 0 &&
-        rect.startCol !== rect.endCol
-      ) {
-        for (let c = rect.startCol; c <= rect.endCol; c++) {
+    console.log("getSelectedCells drag rect:", rect);
+      console.log("isColHeaderDrag:", this.isColHeaderDrag);
+      console.log("isRowHeaderDrag:", this.isRowHeaderDrag);
+      
+      // Check if this is a column header drag
+      if (this.isColHeaderDrag) {
+        console.log("Column header drag detected");
+        const selectedColumns = this.selMgr.getSelectedColumns();
+        for (const col of selectedColumns) {
           for (let r = 0; r < ROWS; r++) {
-            const cell = this.getCellIfExists(r, c);
+            const cell = this.getCellIfExists(r, col);
             if (cell) cells.push(cell);
           }
         }
         return cells;
       }
-      // Multi-row selection by dragging row headers
-      if (
-        rect.startCol === 0 &&
-        rect.endCol === 0 &&
-        rect.startRow !== rect.endRow
-      ) {
+      
+      // Check if this is a row header drag
+      if (this.isRowHeaderDrag) {
+        console.log("Row header drag detected");
         for (let r = rect.startRow; r <= rect.endRow; r++) {
           for (let c = 0; c < COLS; c++) {
             const cell = this.getCellIfExists(r, c);
@@ -1906,10 +1956,25 @@ export class Grid {
         }
         return cells;
       }
-      // Normal rectangle selection
+      
+      // Normal rectangle selection (data area drag)
+      console.log("Data area drag detected");
       for (let r = rect.startRow; r <= rect.endRow; r++) {
         for (let c = rect.startCol; c <= rect.endCol; c++) {
           const cell = this.getCellIfExists(r, c);
+          if (cell) cells.push(cell);
+        }
+      }
+      return cells;
+    }
+
+    // Check for selected columns array (for column header selections when not dragging)
+    const selectedColumns = this.selMgr.getSelectedColumns();
+    if (selectedColumns.length > 0) {
+      console.log("Selected columns from array:", selectedColumns);
+      for (const col of selectedColumns) {
+        for (let r = 0; r < ROWS; r++) {
+          const cell = this.getCellIfExists(r, col);
           if (cell) cells.push(cell);
         }
       }
