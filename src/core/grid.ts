@@ -13,6 +13,8 @@ import { ItalicCommand } from "../commands/ItalicCommand";
 import { Aggregator } from "./Aggregator";
 import { evaluateFormula } from "../formulas/FormulaEvaluator";
 import { getCoordinates } from "../utils/CellRange";
+import { PasteCommand } from "../commands/PasteCommand";
+import { CopyCommand } from "../commands/CopyCommand";
 
 /**
  * Default sizes used by managers on first construction.
@@ -100,6 +102,11 @@ export class Grid {
   private dragStartRowHeader: number | null = null;
   // Helper flag to track if row header drag has moved
   private _rowHeaderDragHasDragged: boolean = false;
+
+  // Track hover state for top-left box
+  private _isTopLeftHovered: boolean = false;
+
+  private clipboard: string[][] | null = null;
 
   /* ─────────────────────────────────────────────────────────────────── */
   /**
@@ -207,11 +214,12 @@ export class Grid {
    * Adds all event listeners for mouse and keyboard interaction.
    */
   private addEventListeners(): void {
-    this.canvas.addEventListener("mousedown", this.onMouseDown.bind(this));
+    // Use pointer events for unified input
+    this.canvas.addEventListener("pointerdown", this.onPointerDown.bind(this));
     this.canvas.addEventListener("dblclick", this.onDoubleClick.bind(this));
-    this.canvas.addEventListener("mousemove", this.onMouseMove.bind(this));
-    window.addEventListener("mousemove", this.onMouseDrag.bind(this));
-    window.addEventListener("mouseup", this.onMouseUp.bind(this));
+    this.canvas.addEventListener("pointermove", this.onPointerMove.bind(this));
+    window.addEventListener("pointermove", this.onPointerDrag.bind(this));
+    window.addEventListener("pointerup", this.onPointerUp.bind(this));
     window.addEventListener("keydown", this.onKeyDown.bind(this));
     const undoButton = document.getElementById("undoBtn")!;
     undoButton.addEventListener("click", this.onUndo.bind(this));
@@ -266,16 +274,78 @@ export class Grid {
     italicBtn.addEventListener("click", this.onItalicToggle.bind(this));
   }
 
+  // Pointer event handlers
+  /**
+   * Pointer down event handler
+   * @param evt - The pointer event
+   */
+  private onPointerDown(evt: PointerEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = evt.clientX - rect.left;
+    const mouseY = evt.clientY - rect.top;
+    if (mouseX >= 0 && mouseX < this.rowHeaderWidth && mouseY >= 0 && mouseY < HEADER_SIZE) {
+      // Select all cells
+      this.selMgr.selectAll();
+      this.scheduleRender();
+      return;
+    }
+    (this.canvas as HTMLElement).setPointerCapture(evt.pointerId);
+    this.onMouseDown(evt);
+  }
+
+  /**
+   * Pointer move event handler
+   * @param evt - The pointer event
+   */
+  private onPointerMove(evt: PointerEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = evt.clientX - rect.left;
+    const mouseY = evt.clientY - rect.top;
+    // Check if pointer is over the top-left box
+    const wasHovered = this._isTopLeftHovered;
+    this._isTopLeftHovered = mouseX >= 0 && mouseX < this.rowHeaderWidth && mouseY >= 0 && mouseY < HEADER_SIZE;
+    if (wasHovered !== this._isTopLeftHovered) {
+      this.scheduleRender();
+    }
+    this.onMouseMove(evt);
+  }
+
+  /**
+   * Pointer drag event handler
+   * @param evt - The pointer event
+   */
+  private onPointerDrag(evt: PointerEvent): void {
+    this.onMouseDrag(evt);
+  }
+
+  /**
+   * Pointer up event handler
+   * @param evt - The pointer event
+   */
+  private onPointerUp(evt: PointerEvent): void {
+    (this.canvas as HTMLElement).releasePointerCapture(evt.pointerId);
+    this.onMouseUp();
+  }
+
+  /**
+   * Undo event handler
+   */
   private onUndo(): void {
     this.commandManager.undo();
     this.scheduleRender();
   }
 
+  /**
+   * Redo event handler
+   */
   private onRedo(): void {
     this.commandManager.redo();
     this.scheduleRender();
   }
 
+  /**
+   * Insert row event handler
+   */
   private onInsertRow(): void {
     const selectedRow = this.selMgr.getSelectedRow();
     const selectedCell = this.selMgr.getSelectedCell();
@@ -291,6 +361,9 @@ export class Grid {
     this.scheduleRender();
   }
 
+  /**
+   * Insert column event handler
+   */
   private onInsertColumn(): void {
     const selectedCol = this.selMgr.getSelectedCol();
     const selectedCell = this.selMgr.getSelectedCell();
@@ -308,6 +381,9 @@ export class Grid {
     this.scheduleRender();
   }
 
+  /**
+   * Delete row event handler
+   */
   private onDeleteRow(): void {
     const selectedRow = this.selMgr.getSelectedRow();
 
@@ -338,6 +414,9 @@ export class Grid {
     }
   }
 
+  /**
+   * Delete column event handler
+   */
   private onDeleteColumn(): void {
     const selectedCol = this.selMgr.getSelectedCol();
     const selectedCell = this.selMgr.getSelectedCell();
@@ -368,7 +447,11 @@ export class Grid {
     }
   }
 
-  private shiftCellsDown(insertAt: number): void {
+  /**
+   * Shift cells down
+   * @param insertAt - The row to insert at
+   */
+    private shiftCellsDown(insertAt: number): void {
     // Move all cells from insertAt onwards down by one row
     for (let row = ROWS - 2; row >= insertAt; row--) {
       const rowMap = this.cells.get(row);
@@ -386,6 +469,10 @@ export class Grid {
     this.cells.set(insertAt, new Map());
   }
 
+  /**
+   * Shift cells right
+   * @param insertAt - The column to insert at
+   */
   private shiftCellsRight(insertAt: number): void {
     // Only process rows that have data
     for (const rowMap of this.cells.values()) {
@@ -402,6 +489,10 @@ export class Grid {
     }
   }
 
+  /**
+   * Shift cells up
+   * @param deleteAt - The row to delete at
+   */
   private shiftCellsUp(deleteAt: number): void {
     // Move all cells from deleteAt + 1 onwards up by one row
     for (let row = deleteAt; row < ROWS - 1; row++) {
@@ -422,6 +513,10 @@ export class Grid {
     this.cells.delete(ROWS - 1);
   }
 
+  /**
+   * Shift cells left
+   * @param deleteAt - The column to delete at
+   */
   private shiftCellsLeft(deleteAt: number): void {
     for (const rowMap of this.cells.values()) {
       // Remove the deleted column first
@@ -440,6 +535,10 @@ export class Grid {
   }
 
   /* ────────── Mouse handlers (selection / resize / edit) ───────────── */
+  /**
+   * Mouse down event handler
+   * @param evt - The mouse event
+   */
   private onMouseDown(evt: MouseEvent): void {
     // Use event offset for header hit-testing so header resize works when scrolled
     const rect = this.canvas.getBoundingClientRect();
@@ -472,6 +571,8 @@ export class Grid {
       this.dragStartColHeader = colIndex;
       this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
       this._colHeaderDragHasDragged = false; // helper flag
+      // Clear any existing row selections when starting column selection
+      this.selMgr.clearSelectedRows();
       // Do NOT select yet; wait for mouseup or drag
       return;
     }
@@ -498,6 +599,8 @@ export class Grid {
       this.dragStartRowHeader = row;
       this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
       this._rowHeaderDragHasDragged = false;
+      // Clear any existing column selections when starting row selection
+      this.selMgr.clearSelectedColumns();
       // Do NOT select yet; wait for mouseup or drag
       return;
     }
@@ -508,6 +611,10 @@ export class Grid {
       const { row } = this.findRowByOffset(y - HEADER_SIZE);
       if (evt.button === 0) {
         // left click
+        // Clear any existing column/row selections when clicking in data area
+        this.selMgr.clearSelectedColumns();
+        this.selMgr.clearSelectedRows();
+        
         // Select cell immediately
         this.selMgr.selectCell(row, col);
         this.scrollToCell(row, col);
@@ -525,6 +632,10 @@ export class Grid {
     this.updateToolbarState();
   }
 
+  /**
+   * Double click event handler
+   * @param evt - The mouse event
+   */
   private onDoubleClick(evt: MouseEvent): void {
     const rect = this.canvas.getBoundingClientRect();
     const mouseX = evt.clientX - rect.left;
@@ -536,6 +647,10 @@ export class Grid {
     this.startEditingCell(row, col);
   }
 
+  /**
+   * Mouse move event handler
+   * @param evt - The mouse event
+   */
   private onMouseMove(evt: MouseEvent): void {
     // Use event offset for header hit-testing so header resize works when scrolled
     const rect = this.canvas.getBoundingClientRect();
@@ -676,6 +791,10 @@ export class Grid {
     // }
   }
 
+  /**
+   * Mouse drag event handler
+   * @param evt - The mouse event
+   */
   private onMouseDrag(evt: MouseEvent): void {
     /* Column resize */
     if (
@@ -705,6 +824,9 @@ export class Grid {
     }
   }
 
+  /**
+   * Mouse up event handler
+   */
   private onMouseUp(): void {
     // Execute the resize command if we were resizing
     if (this.isResizing && this.currentResizeCommand) {
@@ -771,12 +893,190 @@ export class Grid {
     this.updateToolbarState();
   }
 
+  /**
+   * Key down event handler
+   * @param e - The keyboard event
+   */
   private onKeyDown(e: KeyboardEvent): void {
     // Only handle navigation if not editing a cell
+    if (e.ctrlKey && e.key === "c") {
+      // Copy selected cells to clipboard
+      const selectedCells = this.getSelectedCells();
+      if (selectedCells.length > 0) {
+        // Find bounds
+        const minRow = Math.min(...selectedCells.map(cell => cell.row));
+        const minCol = Math.min(...selectedCells.map(cell => cell.col));
+        const maxRow = Math.max(...selectedCells.map(cell => cell.row));
+        const maxCol = Math.max(...selectedCells.map(cell => cell.col));
+        const clipboardData: string[][] = [];
+        for (let r = minRow; r <= maxRow; r++) {
+          const row: string[] = [];
+          for (let c = minCol; c <= maxCol; c++) {
+            const cell = this.getCellIfExists(r, c);
+            row.push(cell ? cell.getValue() : "");
+          }
+          clipboardData.push(row);
+        }
+        this.clipboard = clipboardData;
+      }
+      return;
+    }
+    if (e.ctrlKey && e.key === "v") {
+      // Paste clipboard at selected cell
+      const selectedCell = this.selMgr.getSelectedCell();
+      if (!selectedCell || !this.clipboard) return;
+      const { row, col } = selectedCell;
+      const clipboardData: string[][] = this.clipboard;
+      for (let r = 0; r < clipboardData.length; r++) {
+        for (let c = 0; c < clipboardData[r].length; c++) {
+          this.setCellValue(row + r, col + c, clipboardData[r][c]);
+        }
+      }
+      this.scheduleRender();
+      return;
+    }
     if (this.editingCell) return;
     //if any key is pressed while cell is seleted start editing but stop on enter or escape and support ctrl +z and ctrl +y
     if (e.key === "Enter" || e.key === "Escape") {
       this.finishEditing(true);
+      return;
+    }
+
+    // Handle shift + arrow keys for column/row selection FIRST (before regular arrow keys)
+    if (e.shiftKey && (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      console.log("Shift + arrow key detected:", e.key);
+      e.preventDefault();
+      
+      // Handle column selection
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+        // Get current selection state
+        const selectedColumns = this.selMgr.getSelectedColumns();
+        const selectedCol = this.selMgr.getSelectedCol();
+        console.log("Column selection state:", { selectedColumns, selectedCol });
+        
+        if (selectedColumns.length > 0) {
+          // We have multiple columns selected, extend the range
+          const minCol = Math.min(...selectedColumns);
+          const maxCol = Math.max(...selectedColumns);
+          
+          if (e.key === "ArrowRight") {
+            const nextCol = maxCol + 1;
+            if (nextCol < COLS) {
+              this.selMgr.addSelectedColumn(nextCol);
+              this.scrollToCell(0, nextCol);
+            }
+          } else if (e.key === "ArrowLeft") {
+            const prevCol = minCol - 1;
+            if (prevCol >= 0) {
+              this.selMgr.addSelectedColumn(prevCol);
+              this.scrollToCell(0, prevCol);
+            }
+          }
+        } else if (selectedCol !== null) {
+          // We have a single column selected, start a new range
+          if (e.key === "ArrowRight") {
+            const nextCol = selectedCol + 1;
+            if (nextCol < COLS) {
+              this.selMgr.addSelectedColumn(nextCol);
+              this.scrollToCell(0, nextCol);
+            }
+          } else if (e.key === "ArrowLeft") {
+            const prevCol = selectedCol - 1;
+            if (prevCol >= 0) {
+              this.selMgr.addSelectedColumn(prevCol);
+              this.scrollToCell(0, prevCol);
+            }
+          }
+        } else {
+          // No column selected, select the current cell's column and extend
+          const selectedCell = this.selMgr.getSelectedCell();
+          if (selectedCell) {
+            const startCol = selectedCell.col;
+            if (e.key === "ArrowRight") {
+              const nextCol = startCol + 1;
+              if (nextCol < COLS) {
+                this.selMgr.selectColumn(startCol);
+                this.selMgr.addSelectedColumn(nextCol);
+                this.scrollToCell(0, nextCol);
+              }
+            } else if (e.key === "ArrowLeft") {
+              const prevCol = startCol - 1;
+              if (prevCol >= 0) {
+                this.selMgr.selectColumn(startCol);
+                this.selMgr.addSelectedColumn(prevCol);
+                this.scrollToCell(0, prevCol);
+              }
+            }
+          }
+        }
+      }
+      
+      // Handle row selection
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        // Get current selection state
+        const selectedRows = this.selMgr.getSelectedRows();
+        const selectedRow = this.selMgr.getSelectedRow();
+        
+        if (selectedRows.length > 0) {
+          // We have multiple rows selected, extend the range
+          const minRow = Math.min(...selectedRows);
+          const maxRow = Math.max(...selectedRows);
+          
+          if (e.key === "ArrowDown") {
+            const nextRow = maxRow + 1;
+            if (nextRow < ROWS) {
+              this.selMgr.addSelectedRow(nextRow);
+              this.scrollToCell(nextRow, 0);
+            }
+          } else if (e.key === "ArrowUp") {
+            const prevRow = minRow - 1;
+            if (prevRow >= 0) {
+              this.selMgr.addSelectedRow(prevRow);
+              this.scrollToCell(prevRow, 0);
+            }
+          }
+        } else if (selectedRow !== null) {
+          // We have a single row selected, start a new range
+          if (e.key === "ArrowDown") {
+            const nextRow = selectedRow + 1;
+            if (nextRow < ROWS) {
+              this.selMgr.addSelectedRow(nextRow);
+              this.scrollToCell(nextRow, 0);
+            }
+          } else if (e.key === "ArrowUp") {
+            const prevRow = selectedRow - 1;
+            if (prevRow >= 0) {
+              this.selMgr.addSelectedRow(prevRow);
+              this.scrollToCell(prevRow, 0);
+            }
+          }
+        } else {
+          // No row selected, select the current cell's row and extend
+          const selectedCell = this.selMgr.getSelectedCell();
+          if (selectedCell) {
+            const startRow = selectedCell.row;
+            if (e.key === "ArrowDown") {
+              const nextRow = startRow + 1;
+              if (nextRow < ROWS) {
+                this.selMgr.selectRow(startRow);
+                this.selMgr.addSelectedRow(nextRow);
+                this.scrollToCell(nextRow, 0);
+              }
+            } else if (e.key === "ArrowUp") {
+              const prevRow = startRow - 1;
+              if (prevRow >= 0) {
+                this.selMgr.selectRow(startRow);
+                this.selMgr.addSelectedRow(prevRow);
+                this.scrollToCell(prevRow, 0);
+              }
+            }
+          }
+        }
+      }
+      
+      this.scheduleRender();
+      this.computeSelectionStats();
+      this.updateToolbarState();
       return;
     }
 
@@ -919,12 +1219,16 @@ export class Grid {
       this.scheduleRender();
       return;
     }
-
     this.computeSelectionStats();
     this.updateToolbarState();
   }
 
   /* ────────── Editing overlay helpers ─────────────────────────────── */
+  /**
+   * Start editing a cell
+   * @param row - The row of the cell
+   * @param col - The column of the cell
+   */
   private startEditingCell(row: number, col: number): void {
     const cell = this.getCell(row, col); // Creates only once
     this.editingCellInstance = cell;
@@ -995,6 +1299,11 @@ export class Grid {
       }
     });
   }
+  /**
+   * Extracts the range from a formula
+   * @param formula - The formula to extract the range from
+   * @returns The range of the formula
+   */
   private extractRangeFromFormula(formula: string): { startRow: number, startCol: number, endRow: number, endCol: number } | null {
     // Remove the = sign if present
     const cleanFormula = formula.startsWith("=") ? formula.substring(1) : formula;
@@ -1019,6 +1328,10 @@ export class Grid {
     // If no valid pattern found, return null
     return null;
   }
+  /**
+   * Searches for a cell
+   * @param searchTerm - The term to search for
+   */
   private searchCell(searchTerm: string): void {
     if (!searchTerm.trim()) {
       // Clear search when input is empty
@@ -1066,6 +1379,9 @@ export class Grid {
   private currentSearchResults: { row: number; col: number; value: string }[] = [];
   private currentSearchIndex: number = 0;
 
+  /**
+   * Clears the search
+   */
   private clearSearch(): void {
     this.currentSearchResults = [];
     this.currentSearchIndex = 0;
@@ -1074,6 +1390,10 @@ export class Grid {
     this.scheduleRender();
   }
 
+  /**
+   * Navigates through the search results
+   * @param direction - The direction to navigate
+   */
   private navigateSearchResults(direction: 'next' | 'prev'): void {
     if (this.currentSearchResults.length === 0) return;
 
@@ -1155,6 +1475,11 @@ export class Grid {
     }
   }
 
+  /**
+   * Updates the search status
+   * @param totalMatches - The total number of matches
+   * @param currentMatch - The current match
+   */
   private updateSearchStatus(totalMatches: number, currentMatch: number): void {
     const searchStatus = document.getElementById('searchStatus');
     if (searchStatus) {
@@ -1168,6 +1493,13 @@ export class Grid {
     }
   }
   
+  /**
+   * Draws the marching ants
+   * @param startRow - The start row
+   * @param startCol - The start column
+   * @param endRow - The end row
+   * @param endCol - The end column
+   */
   public drawMarchingAnts(startRow: number, startCol: number, endRow: number, endCol: number): void {
     const ctx = this.canvas.getContext("2d")!;
     const x1 = this.rowHeaderWidth + this.colMgr.getX(startCol) - this.container.scrollLeft;
@@ -1184,6 +1516,9 @@ export class Grid {
     ctx.restore();
   }
   
+  /**
+   * Updates the editor position
+   */
   private updateEditorPosition(): void {
     if (!this.editingCell || !this.editorInput) return;
 
@@ -1207,6 +1542,10 @@ export class Grid {
     // this.drawHeader(col, true, left, this.colMgr.getWidth(col));
   }
 
+  /**
+   * Finishes editing a cell
+   * @param commit - Whether to commit the changes
+   */
   private finishEditing(commit: boolean): void {
     if (!this.editorInput || !this.editingCell || !this.editingCellInstance)
       return;
@@ -1375,6 +1714,37 @@ export class Grid {
     const scrollX = this.container.scrollLeft;
     const scrollY = this.container.scrollTop;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // Draw the top-left box (intersection of row/col headers)
+    const isTopLeftHovered = this._isTopLeftHovered || false;
+    this.ctx.save();
+    this.ctx.fillStyle = isTopLeftHovered ? "#e0e0e0" : "#F5F5F5"; // Hover effect
+    this.ctx.fillRect(0, 0, this.rowHeaderWidth, HEADER_SIZE);
+    this.ctx.strokeStyle = "#b7c6d5"; // Match your header border
+    this.ctx.lineWidth = 1 / dpr;
+    this.ctx.strokeRect(0, 0, this.rowHeaderWidth, HEADER_SIZE);
+    // Draw a bold select-all icon (3x3 grid) in the top-left box
+    this.ctx.save();
+    // this.ctx.strokeStyle = "#222"; // Even darker for visibility
+    // this.ctx.lineWidth = 2.5;
+    // const iconBox = Math.min(this.rowHeaderWidth, HEADER_SIZE) * 0.7;
+    // const iconX = (this.rowHeaderWidth - iconBox) / 2;
+    // const iconY = (HEADER_SIZE - iconBox) / 2;
+    // for (let i = 0; i <= 3; i++) {
+    //   // Vertical lines
+    //   this.ctx.beginPath();
+    //   this.ctx.moveTo(iconX + (iconBox / 3) * i, iconY);
+    //   this.ctx.lineTo(iconX + (iconBox / 3) * i, iconY + iconBox);
+    //   this.ctx.stroke();
+    //   // Horizontal lines
+    //   this.ctx.beginPath();
+    //   this.ctx.moveTo(iconX, iconY + (iconBox / 3) * i);
+    //   this.ctx.lineTo(iconX + iconBox, iconY + (iconBox / 3) * i);
+    //   this.ctx.stroke();
+    // }
+    this.ctx.restore();
+    this.ctx.restore();
+
     const { firstRow, lastRow, firstCol, lastCol } = this.getVisibleRange();
     
     // Draw marching ants for formula range if active
@@ -1546,10 +1916,18 @@ export class Grid {
   ): void {
     const ctx = this.ctx;
     const label = isColumn ? this.columnName(index) : (index + 1).toString();
-    this.rowHeaderWidth = Math.max(
-      this.rowHeaderWidth,
-      ctx.measureText(label).width + 16
-    );
+    // Smoothly animate rowHeaderWidth to the desired width instead of snapping
+    if (!isColumn) {
+      const desiredWidth = ctx.measureText(label).width + 16;
+      const defaultWidth = 40;
+      const targetWidth = Math.max(desiredWidth, defaultWidth);
+      // Use a simple lerp for smooth transition
+      const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+      // Animate with a factor (0.2 for smoothness)
+      this.rowHeaderWidth = lerp(this.rowHeaderWidth, targetWidth, 0.2);
+      // Clamp to integer for pixel alignment
+      this.rowHeaderWidth = Math.round(this.rowHeaderWidth);
+    }
 
     const x = isColumn ? pos : 0;
     const y = isColumn ? 0 : pos;

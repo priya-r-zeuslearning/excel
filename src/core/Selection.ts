@@ -2,7 +2,9 @@ import { RowManager } from "./RowManager";
 import { ColumnManager } from "./ColumnManager";
 import { ROWS, COLS } from "./grid";
 
-
+/**
+ * Interface for the drag rectangle
+ */
 export interface DragRect {
   startRow: number;
   endRow: number;
@@ -10,13 +12,6 @@ export interface DragRect {
   endCol: number;
 }
 
-/**
- * @typedef {Object} SelectionColors
- * @property {string} rangeFill - Fill color for selection range
- * @property {string} rowColFill - Fill color for row/col selection
- * @property {string} activeFill - Fill color for active cell
- * @property {string} activeBorder - Border color for active cell
- */
 
 /**
  * Centralises **all** selection‑related state (active cell, full row/col, drag rectangle)
@@ -65,9 +60,16 @@ export class SelectionManager {
   public isDragging(): boolean {
     return this.dragging;
   }
+  /**
+   * Checks if the selection is dragging a header.
+   * @returns true if the selection is dragging a header, false otherwise
+   */
   public isDraggingHeader(): boolean {
     return this.wasHeaderDrag;
   }
+  /**
+   * Selects all cells in the grid.
+   */
 public selectAll(): void {
   this.clear();
   // Limit select all to a reasonable range to avoid performance issues
@@ -170,6 +172,11 @@ public selectEntireGrid(): void {
       this.selectedColumns.push(c);
     }
   }
+  /**
+   * Selects a range of rows.
+   * @param startRow the start row of the range
+   * @param endRow the end row of the range
+   */
   selectRows(startRow: number, endRow: number): void {
     this.selectedCell = null;
     this.selectedRow = null;
@@ -189,6 +196,10 @@ public selectEntireGrid(): void {
     this.selectedCol = col;
     this.selectedColumns = [col];
   }
+  /**
+   * Selects a row.
+   * @param row the row to select
+   */
 public selectRow(row: number): void {
   this.clear();
   this.selectedRow = row;
@@ -413,7 +424,7 @@ public selectRow(row: number): void {
         ctx.fillRect(x1 + 0.5, y1 + 0.5, x2 - x1 - 1, y2 - y1 - 1);
         ctx.strokeStyle = "#107C41";
         ctx.lineWidth = 2 / window.devicePixelRatio;
-        ctx.strokeRect(x1 + 1, y1 + 1.5, x2 - x1 - 1, y2 - y1 - 1);
+        ctx.strokeRect(x1 - 0.5, y1 - 0.5, x2 - x1 + 1, y2 - y1 + 1);
         ctx.restore();
     
       }
@@ -444,6 +455,10 @@ public selectRow(row: number): void {
   public getSelectedColumns(): number[] {
     return [...this.selectedColumns];
   }
+  /**
+   * Gets the array of selected rows.
+   * @returns array of selected row indices
+   */
   public getSelectedRows(): number[] {
     return [...this.selectedRows];
   }
@@ -458,11 +473,19 @@ public selectRow(row: number): void {
       this.selectedColumns.push(col);
     }
   }
+  /**
+   * Adds a row to the selected rows array.
+   * @param row the row index to add
+   */
   public addSelectedRow(row: number): void {
     if (!this.selectedRows.includes(row)) {
       this.selectedRows.push(row);
     }
   }
+  /**
+   * Removes a row from the selected rows array.
+   * @param row the row index to remove
+   */
   public removeSelectedRow(row: number): void {
     const index = this.selectedRows.indexOf(row);
     if (index > -1) {
@@ -487,9 +510,16 @@ public selectRow(row: number): void {
   public setSelectedColumns(columns: number[]): void {
     this.selectedColumns = [...columns];
   }
+  /**
+   * Sets the selected rows array.
+   * @param rows array of row indices to select
+   */
   public setSelectedRows(rows: number[]): void {
     this.selectedRows = [...rows];
   }
+  /**
+   * Clears the selected rows array.
+   */
   public clearSelectedRows(): void {
     this.selectedRows = [];
   }
