@@ -238,16 +238,16 @@ public selectRow(row: number): void {
     this.dragging = false;
     // Keep the drag rectangle for header highlighting
     if (this.dragStart && this.dragEnd) {
-      const startRow = this.dragStart.row ?? 0;
-      const endRow = this.dragEnd.row ?? 0;
+      const startRow = this.dragStart.row ;
+      const endRow = this.dragEnd.row;
       const startCol = this.dragStart.col;
-      const endCol = this.dragEnd.col ?? 0;
-      
+      const endCol = this.dragEnd.col;
+
       this.dragRect = {
-        startRow: Math.min(startRow, endRow),
-        endRow: Math.max(startRow, endRow),
-        startCol: Math.min(startCol, endCol),
-        endCol: Math.max(startCol, endCol),
+        startRow: Math.min(startRow!, endRow!),
+        endRow: Math.max(startRow!, endRow!),
+        startCol: Math.min(startCol!, endCol!),
+        endCol: Math.max(startCol!, endCol!),
       };
     }
 
@@ -294,7 +294,7 @@ public selectRow(row: number): void {
     
     const startRow = this.dragStart.row ?? 0;
     const endRow = this.dragEnd.row ?? 0;
-    const startCol = this.dragStart.col;
+    const startCol = this.dragStart.col ?? 0;
     const endCol = this.dragEnd.col ?? 0;
     
     return {

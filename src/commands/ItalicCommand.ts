@@ -11,23 +11,15 @@ export class ItalicCommand implements Command {
     this.oldItalic = cell.getIsItalic();
     this.newItalic = newItalic;
   }
-  /**
-   * Executes the italic command.
-   */
+  
   execute(): void {
     this.cell.setIsItalic(this.newItalic);
   }
 
-  /**
-   * Undoes the italic command.
-   */
   undo(): void {
     this.cell.setIsItalic(this.oldItalic);
   }
 
-  /**
-   * Redoes the italic command.
-   */
   redo(): void {
     this.cell.setIsItalic(this.newItalic);
   }

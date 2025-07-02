@@ -15,6 +15,8 @@ import { evaluateFormula } from "../formulas/FormulaEvaluator";
 import { getCoordinates } from "../utils/CellRange";
 import { PasteCommand } from "../commands/PasteCommand";
 import { CopyCommand } from "../commands/CopyCommand";
+import { CompositeCommand } from "../commands/CompositeCommand";
+import { ClipboardManager } from "../commands/ClipboardManager";
 
 /**
  * Default sizes used by managers on first construction.
@@ -307,6 +309,7 @@ export class Grid {
     if (wasHovered !== this._isTopLeftHovered) {
       this.scheduleRender();
     }
+    
     this.onMouseMove(evt);
   }
 
@@ -451,7 +454,7 @@ export class Grid {
    * Shift cells down
    * @param insertAt - The row to insert at
    */
-    private shiftCellsDown(insertAt: number): void {
+  private shiftCellsDown(insertAt: number): void {
     // Move all cells from insertAt onwards down by one row
     for (let row = ROWS - 2; row >= insertAt; row--) {
       const rowMap = this.cells.get(row);
@@ -764,6 +767,7 @@ export class Grid {
         const { col } = this.findColumnByOffset(x - HEADER_SIZE);
         const { row } = this.findRowByOffset(y - HEADER_SIZE);
         this.selMgr.updateDrag(row, col);
+        this.scrollToCell(row, col);
         this.scheduleRender();
       }
     }
@@ -885,7 +889,8 @@ export class Grid {
 
     // Finalize drag selection if we were dragging
     if (this.selMgr.isDragging()) {
-        this.selMgr.endDrag();
+      this.selMgr.endDrag();
+     
       this.scheduleRender();
     }
 
@@ -926,12 +931,11 @@ export class Grid {
       const selectedCell = this.selMgr.getSelectedCell();
       if (!selectedCell || !this.clipboard) return;
       const { row, col } = selectedCell;
-      const clipboardData: string[][] = this.clipboard;
-      for (let r = 0; r < clipboardData.length; r++) {
-        for (let c = 0; c < clipboardData[r].length; c++) {
-          this.setCellValue(row + r, col + c, clipboardData[r][c]);
-        }
-      }
+      // Use ClipboardManager for undo/redo support
+      const clipboardManager = new ClipboardManager();
+      clipboardManager.setData(this.clipboard);
+      const command = new PasteCommand(row, col, this, clipboardManager);
+      this.commandManager.execute(command);
       this.scheduleRender();
       return;
     }
@@ -942,144 +946,7 @@ export class Grid {
       return;
     }
 
-    // Handle shift + arrow keys for column/row selection FIRST (before regular arrow keys)
-    if (e.shiftKey && (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      console.log("Shift + arrow key detected:", e.key);
-      e.preventDefault();
-      
-      // Handle column selection
-      if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-        // Get current selection state
-        const selectedColumns = this.selMgr.getSelectedColumns();
-        const selectedCol = this.selMgr.getSelectedCol();
-        console.log("Column selection state:", { selectedColumns, selectedCol });
-        
-        if (selectedColumns.length > 0) {
-          // We have multiple columns selected, extend the range
-          const minCol = Math.min(...selectedColumns);
-          const maxCol = Math.max(...selectedColumns);
-          
-          if (e.key === "ArrowRight") {
-            const nextCol = maxCol + 1;
-            if (nextCol < COLS) {
-              this.selMgr.addSelectedColumn(nextCol);
-              this.scrollToCell(0, nextCol);
-            }
-          } else if (e.key === "ArrowLeft") {
-            const prevCol = minCol - 1;
-            if (prevCol >= 0) {
-              this.selMgr.addSelectedColumn(prevCol);
-              this.scrollToCell(0, prevCol);
-            }
-          }
-        } else if (selectedCol !== null) {
-          // We have a single column selected, start a new range
-          if (e.key === "ArrowRight") {
-            const nextCol = selectedCol + 1;
-            if (nextCol < COLS) {
-              this.selMgr.addSelectedColumn(nextCol);
-              this.scrollToCell(0, nextCol);
-            }
-          } else if (e.key === "ArrowLeft") {
-            const prevCol = selectedCol - 1;
-            if (prevCol >= 0) {
-              this.selMgr.addSelectedColumn(prevCol);
-              this.scrollToCell(0, prevCol);
-            }
-          }
-        } else {
-          // No column selected, select the current cell's column and extend
-          const selectedCell = this.selMgr.getSelectedCell();
-          if (selectedCell) {
-            const startCol = selectedCell.col;
-            if (e.key === "ArrowRight") {
-              const nextCol = startCol + 1;
-              if (nextCol < COLS) {
-                this.selMgr.selectColumn(startCol);
-                this.selMgr.addSelectedColumn(nextCol);
-                this.scrollToCell(0, nextCol);
-              }
-            } else if (e.key === "ArrowLeft") {
-              const prevCol = startCol - 1;
-              if (prevCol >= 0) {
-                this.selMgr.selectColumn(startCol);
-                this.selMgr.addSelectedColumn(prevCol);
-                this.scrollToCell(0, prevCol);
-              }
-            }
-          }
-        }
-      }
-      
-      // Handle row selection
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        // Get current selection state
-        const selectedRows = this.selMgr.getSelectedRows();
-        const selectedRow = this.selMgr.getSelectedRow();
-        
-        if (selectedRows.length > 0) {
-          // We have multiple rows selected, extend the range
-          const minRow = Math.min(...selectedRows);
-          const maxRow = Math.max(...selectedRows);
-          
-          if (e.key === "ArrowDown") {
-            const nextRow = maxRow + 1;
-            if (nextRow < ROWS) {
-              this.selMgr.addSelectedRow(nextRow);
-              this.scrollToCell(nextRow, 0);
-            }
-          } else if (e.key === "ArrowUp") {
-            const prevRow = minRow - 1;
-            if (prevRow >= 0) {
-              this.selMgr.addSelectedRow(prevRow);
-              this.scrollToCell(prevRow, 0);
-            }
-          }
-        } else if (selectedRow !== null) {
-          // We have a single row selected, start a new range
-          if (e.key === "ArrowDown") {
-            const nextRow = selectedRow + 1;
-            if (nextRow < ROWS) {
-              this.selMgr.addSelectedRow(nextRow);
-              this.scrollToCell(nextRow, 0);
-            }
-          } else if (e.key === "ArrowUp") {
-            const prevRow = selectedRow - 1;
-            if (prevRow >= 0) {
-              this.selMgr.addSelectedRow(prevRow);
-              this.scrollToCell(prevRow, 0);
-            }
-          }
-        } else {
-          // No row selected, select the current cell's row and extend
-          const selectedCell = this.selMgr.getSelectedCell();
-          if (selectedCell) {
-            const startRow = selectedCell.row;
-            if (e.key === "ArrowDown") {
-              const nextRow = startRow + 1;
-              if (nextRow < ROWS) {
-                this.selMgr.selectRow(startRow);
-                this.selMgr.addSelectedRow(nextRow);
-                this.scrollToCell(nextRow, 0);
-              }
-            } else if (e.key === "ArrowUp") {
-              const prevRow = startRow - 1;
-              if (prevRow >= 0) {
-                this.selMgr.selectRow(startRow);
-                this.selMgr.addSelectedRow(prevRow);
-                this.scrollToCell(prevRow, 0);
-              }
-            }
-          }
-        }
-      }
-      
-      this.scheduleRender();
-      this.computeSelectionStats();
-      this.updateToolbarState();
-      return;
-    }
-
+  
     if (
       e.key === "ArrowRight" ||
       e.key === "ArrowLeft" ||
@@ -1105,14 +972,14 @@ export class Grid {
       // Determine new focus cell
       let focusRow =
         this.selMgr.isDragging() &&
-        this.selMgr["dragEnd"] &&
-        typeof this.selMgr["dragEnd"].row === "number"
+          this.selMgr["dragEnd"] &&
+          typeof this.selMgr["dragEnd"].row === "number"
           ? this.selMgr["dragEnd"].row
           : anchorRow;
       let focusCol =
         this.selMgr.isDragging() &&
-        this.selMgr["dragEnd"] &&
-        typeof this.selMgr["dragEnd"].col === "number"
+          this.selMgr["dragEnd"] &&
+          typeof this.selMgr["dragEnd"].col === "number"
           ? this.selMgr["dragEnd"].col
           : anchorCol;
       // Ensure focusRow and focusCol are numbers
@@ -1134,9 +1001,9 @@ export class Grid {
       }
       if (e.shiftKey) {
         if (!this.selMgr.isDragging()) {
-          this.selMgr.startDrag(anchorRow, anchorCol );
+          this.selMgr.startDrag(anchorRow, anchorCol);
         }
-        this.selMgr.updateDrag(focusRow, focusCol  );
+        this.selMgr.updateDrag(focusRow, focusCol);
         this.scrollToCell(focusRow, focusCol);
         this.scheduleRender();
         return;
@@ -1148,7 +1015,7 @@ export class Grid {
         this.computeSelectionStats();
       }
     }
-    if(e.ctrlKey && e.key === "a"){
+    if (e.ctrlKey && e.key === "a") {
       this.selMgr.selectAll();
       this.scheduleRender();
       return;
@@ -1400,8 +1267,8 @@ export class Grid {
     if (direction === 'next') {
       this.currentSearchIndex = (this.currentSearchIndex + 1) % this.currentSearchResults.length;
     } else {
-      this.currentSearchIndex = this.currentSearchIndex === 0 
-        ? this.currentSearchResults.length - 1 
+      this.currentSearchIndex = this.currentSearchIndex === 0
+        ? this.currentSearchResults.length - 1
         : this.currentSearchIndex - 1;
     }
 
@@ -1411,11 +1278,11 @@ export class Grid {
     this.updateSearchStatus(this.currentSearchResults.length, this.currentSearchIndex + 1);
     this.scheduleRender();
   }
-/**
- * Scrolls to a cell and ensures it is visible.
- * @param row The row index
- * @param col The column index
- */
+  /**
+   * Scrolls to a cell and ensures it is visible.
+   * @param row The row index
+   * @param col The column index
+   */
   private scrollToCell(row: number, col: number): void {
     const cellX = this.colMgr.getX(col);
     const cellY = this.rowMgr.getY(row);
@@ -1441,10 +1308,10 @@ export class Grid {
 
     if (cellRight > visibleRight) {
       // Cell is to the right of visible area
-      targetScrollX = cellRight - visibleWidth+200;
+      targetScrollX = cellRight - visibleWidth + 200;
     } else if (cellLeft < visibleLeft) {
       // Cell is to the left of visible area
-      targetScrollX = cellLeft-200;
+      targetScrollX = cellLeft - 200;
     }
 
     // Check if cell is outside visible area vertically
@@ -1455,10 +1322,10 @@ export class Grid {
 
     if (cellBottom > visibleBottom) {
       // Cell is below visible area
-      targetScrollY = cellBottom - visibleHeight+200;
+      targetScrollY = cellBottom - visibleHeight + 200;
     } else if (cellTop < visibleTop) {
       // Cell is above visible area
-      targetScrollY = cellTop-200;  
+      targetScrollY = cellTop - 200;
     }
 
     // Ensure scroll position is within bounds
@@ -1470,7 +1337,7 @@ export class Grid {
       this.container.scrollTo({
         left: targetScrollX,
         top: targetScrollY,
-        behavior: 'smooth'
+        behavior: 'instant'
       });
     }
   }
@@ -1511,7 +1378,7 @@ export class Grid {
     ctx.setLineDash([4, 2]); // Dash pattern
     ctx.lineDashOffset = this.dashOffset;
     ctx.strokeStyle = "#217346";
-    ctx.lineWidth = 3/dpr;
+    ctx.lineWidth = 3 / dpr;
     ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
     ctx.restore();
   }
@@ -1791,11 +1658,29 @@ export class Grid {
         } else {
           this.ctx.font = "14px 'Arial', sans-serif";
         }
-        this.ctx.textAlign = "left";
-        this.ctx.textBaseline = "middle";
+        
         const cellValue = rowMap?.get(c)?.getValue() || "";
+        const isNumeric = this.isNumericValue(cellValue);
+        
+        // Set text alignment based on content type
+        if (isNumeric) {
+          this.ctx.textAlign = "right";
+        } else {
+          this.ctx.textAlign = "left";
+        }
+        
+        this.ctx.textBaseline = "middle";
         const clipped = this.clipText(cellValue, colW - 16);
-        this.ctx.fillText(clipped, xPos + 8, yPos + rowH - 10);
+        
+        // Calculate x position based on alignment
+        let textX: number;
+        if (isNumeric) {
+          textX = xPos + colW - 8; // Right-aligned with 8px padding from right edge
+        } else {
+          textX = xPos + 8; // Left-aligned with 8px padding from left edge
+        }
+        
+        this.ctx.fillText(clipped, textX, yPos + rowH - 10);
         xPos += colW;
       }
       yPos += rowH;
@@ -1805,8 +1690,8 @@ export class Grid {
     let gridX = this.rowHeaderWidth + this.colMgr.getX(firstCol) - scrollX;
     for (let c = firstCol; c <= lastCol + 1; c++) {
       this.ctx.beginPath();
-      this.ctx.moveTo(gridX, HEADER_SIZE);
-      this.ctx.lineTo(gridX, this.canvas.height / dpr);
+      this.ctx.moveTo(gridX + 0.5, HEADER_SIZE);
+      this.ctx.lineTo(gridX + 0.5, this.canvas.height / dpr);
       this.ctx.strokeStyle = "#d4d4d4";
       this.ctx.lineWidth = 1 / dpr;
       this.ctx.stroke();
@@ -1817,8 +1702,8 @@ export class Grid {
     let gridY = HEADER_SIZE + this.rowMgr.getY(firstRow) - scrollY;
     for (let r = firstRow; r <= lastRow + 1; r++) {
       this.ctx.beginPath();
-      this.ctx.moveTo(HEADER_SIZE, gridY);
-      this.ctx.lineTo(this.canvas.width / dpr, gridY);
+      this.ctx.moveTo(HEADER_SIZE, gridY + 0.5);
+      this.ctx.lineTo(this.canvas.width / dpr, gridY + 0.5);
       this.ctx.strokeStyle = "#d4d4d4";
       this.ctx.lineWidth = 1 / dpr;
       this.ctx.stroke();
@@ -1872,6 +1757,17 @@ export class Grid {
     }
     return text + "…";
   }
+
+  /**
+   * Checks if a cell value contains only digits, decimals, or percentages.
+   * @param value the cell value to check
+   * @returns true if the value contains only digits, decimals, or percentages, false otherwise
+   */
+  private isNumericValue(value: string): boolean {
+    const cleanValue = value.trim();
+    return /^\d+$|^\d+\.\d+$|^\d+%$/.test(cleanValue);
+  }
+
   /* ────────── Batch‑update helpers (programmatic edits) ───────────── */
   /**
    * Begins a batch update.
@@ -1965,11 +1861,10 @@ export class Grid {
     }
     if (
       (isColumn && selectedCol === index) ||
-      (!isColumn && selectedRow === index) )
-     {
+      (!isColumn && selectedRow === index)) {
       highlight = true;
     }
-    if (isColumn && selectedRow !== null || (!isColumn && this.selMgr.getSelectedColumns().length > 0)){
+    if (isColumn && selectedRow !== null || (!isColumn && this.selMgr.getSelectedColumns().length > 0)) {
       highlight = true;
     }
     if ((!isColumn && selectedRow === index) || (isColumn && selectedCol === index)) {
@@ -1978,7 +1873,7 @@ export class Grid {
       highlightText = "#FFFFFF";
       isBold = true;
     }
-    if((this.selMgr.getSelectedColumns().includes(index) && isColumn) || (this.selMgr.getSelectedRows().includes(index) && !isColumn)) {
+    if ((this.selMgr.getSelectedColumns().includes(index) && isColumn) || (this.selMgr.getSelectedRows().includes(index) && !isColumn)) {
       highlight = true;
       highlightColor = "#107C41";
       highlightText = "#FFFFFF";
@@ -1998,32 +1893,16 @@ export class Grid {
     this.ctx.strokeRect(0, 0, this.rowHeaderWidth, HEADER_SIZE);
     // Check drag selection
     if (dragRect) {
-      // Only highlight headers based on the type of drag
-      if (this.selMgr.isDraggingHeader()) {
-        // For header drags, only highlight the appropriate header type
-        if (isColumn) {
-          // Column header drag - only highlight column headers
-          const inRange = index >= dragRect.startCol && index <= dragRect.endCol;
-          if (inRange) {
-            highlight = true;
-          }
-        } else {
-          // Row header drag - only highlight row headers
-          const inRange = index >= dragRect.startRow && index <= dragRect.endRow;
-          if (inRange) {
-            highlight = true;
-          }
-        }
-      } else {
-        // For data area drags, highlight both row and column headers that are in range
-        const inRange = isColumn
-          ? index >= dragRect.startCol && index <= dragRect.endCol
-          : index >= dragRect.startRow && index <= dragRect.endRow;
-        if (inRange) {
-          highlight = true;
-        }
+   
+      const inRange = isColumn
+        ? index >= dragRect.startCol && index <= dragRect.endCol
+        : index >= dragRect.startRow && index <= dragRect.endRow;
+      if (inRange) {
+        highlight = true;
       }
     }
+  
+
 
     // Draw background
     if (highlight) {
@@ -2147,35 +2026,56 @@ export class Grid {
    */
   private computeSelectionStats(): void {
     // Drag rectangle (range selection)
-    const rect = this.selMgr.getDragRect();
-    if (rect) {
-      console.log("getSelectedCells drag rect:", rect);
-      const { startRow, endRow, startCol, endCol } = rect;
-      const cells: (string | number)[][] = [];
-      for (let r = startRow; r <= endRow; r++) {
-        const row: (string | number)[] = [];
-        for (let c = startCol; c <= endCol; c++) {
-          row.push(this.getCellValueIfExists(r, c));
-        }
-        cells.push(row);
-      }
-      const stats = Aggregator.compute(cells);
-      this.updateStatusBar(stats);
-      return;
-    }
+   
     // Whole row selection
-    const selectedRow = this.selMgr.getSelectedRow();
-    if (selectedRow !== null) {
-      const row: (string | number)[] = [];
-      for (let c = 0; c < COLS; c++) {
-        row.push(this.getCellValueIfExists(selectedRow, c));
+    const selectedRows = this.selMgr.getSelectedRows();
+    if (selectedRows.length > 0) {
+      // Select data from all columns of the selected rows
+      const rowsData: (string | number)[][] = [];
+      for (const rowIdx of selectedRows) {
+        if (rowIdx !== null) {
+          const row: (string | number)[] = [];
+          for (let c = 0; c < COLS; c++) {
+            row.push(this.getCellValueIfExists(rowIdx, c));
+          }
+          rowsData.push(row);
+        }
       }
-      const stats = Aggregator.compute([row]);
-      this.updateStatusBar(stats);
-      return;
+      if (rowsData.length > 0) {
+        const stats = Aggregator.compute(rowsData);
+        this.updateStatusBar(stats);
+        return;
+      }
+    }
+    // Multiple columns selection
+    const selectedColumns = this.selMgr.getSelectedColumns();
+    if (selectedColumns.length > 0) {
+      // Ensure all selected columns are included, including the last one
+      const minCol = Math.min(...selectedColumns);
+      const maxCol = Math.max(...selectedColumns);
+      const fullSelectedCols: number[] = [];
+      for (let c = minCol; c <= maxCol; c++) {
+        if (selectedColumns.includes(c)) {
+          fullSelectedCols.push(c);
+        }
+      }
+      // For each row, collect values from all selected columns (including the last)
+      const colsData: (string | number)[][] = [];
+      for (let r = 0; r < ROWS; r++) {
+        const row: (string | number)[] = [];
+        for (const col of fullSelectedCols) {
+          row.push(this.getCellValueIfExists(r, col));
+        }
+        colsData.push(row);
+      }
+      if (colsData.length > 0) {
+        const stats = Aggregator.compute(colsData);
+        this.updateStatusBar(stats);
+        return;
+      }
     }
     // Whole column selection
-    const selectedCol = this.selMgr.getSelectedCol();
+    const selectedCol = this.selMgr.getSelectedCol(); 
     if (selectedCol !== null) {
       const col: (string | number)[] = [];
       for (let r = 0; r < ROWS; r++) {
@@ -2192,6 +2092,22 @@ export class Grid {
       const { row, col } = selectedCell;
       const value = this.getCellValueIfExists(row, col);
       const stats = Aggregator.compute([[value]]);
+      this.updateStatusBar(stats);
+      return;
+    }
+    const rect = this.selMgr.getDragRect();
+    if (rect) {
+      console.log("getSelectedCells drag rect:", rect);
+      const { startRow, endRow, startCol, endCol } = rect;
+      const cells: (string | number)[][] = [];
+      for (let r = startRow; r <= endRow; r++) {
+        const row: (string | number)[] = [];
+        for (let c = startCol; c <= endCol; c++) {
+          row.push(this.getCellValueIfExists(r, c));
+        }
+        cells.push(row);
+      }
+      const stats = Aggregator.compute(cells);
       this.updateStatusBar(stats);
       return;
     }
@@ -2252,10 +2168,9 @@ export class Grid {
     if (selectedCells.length === 0) return;
 
     // Create and execute command for each selected cell
-    for (const cell of selectedCells) {
-      const command = new FontSizeCommand(cell, newSize);
-      this.commandManager.execute(command);
-    }
+    const commands = selectedCells.map(cell => new FontSizeCommand(cell, newSize));
+    const composite = new CompositeCommand(commands);
+    this.commandManager.execute(composite);
 
     this.scheduleRender();
   }
@@ -2268,11 +2183,9 @@ export class Grid {
     const selectedCells = this.getSelectedCells();
     if (selectedCells.length === 0) return;
 
-    // Create and execute command for each selected cell
-    for (const cell of selectedCells) {
-      const command = new BoldCommand(cell, isBold);
-      this.commandManager.execute(command);
-    }
+    const commands = selectedCells.map(cell => new BoldCommand(cell, isBold));
+    const composite = new CompositeCommand(commands);
+    this.commandManager.execute(composite);
 
     this.updateToolbarState();
     this.scheduleRender();
@@ -2287,10 +2200,9 @@ export class Grid {
     if (selectedCells.length === 0) return;
 
     // Create and execute command for each selected cell
-    for (const cell of selectedCells) {
-      const command = new ItalicCommand(cell, isItalic);
-      this.commandManager.execute(command);
-    }
+    const commands = selectedCells.map(cell => new ItalicCommand(cell, isItalic));
+    const composite = new CompositeCommand(commands);
+    this.commandManager.execute(composite);
 
     this.updateToolbarState();
     this.scheduleRender();
@@ -2304,47 +2216,7 @@ export class Grid {
     const cells: Cell[] = [];
 
     // Check for drag selection first
-    const rect = this.selMgr.getDragRect();
-    if (rect) {
-    console.log("getSelectedCells drag rect:", rect);
-      console.log("isColHeaderDrag:", this.isColHeaderDrag);
-      console.log("isRowHeaderDrag:", this.isRowHeaderDrag);
-      
-      // Check if this is a column header drag
-      if (this.isColHeaderDrag) {
-        console.log("Column header drag detected");
-        const selectedColumns = this.selMgr.getSelectedColumns();
-        for (const col of selectedColumns) {
-          for (let r = 0; r < ROWS; r++) {
-            const cell = this.getCellIfExists(r, col);
-            if (cell) cells.push(cell);
-          }
-        }
-        return cells;
-      }
-      
-      // Check if this is a row header drag
-      if (this.isRowHeaderDrag) {
-        console.log("Row header drag detected");
-        for (let r = rect.startRow; r <= rect.endRow; r++) {
-          for (let c = 0; c < COLS; c++) {
-            const cell = this.getCellIfExists(r, c);
-            if (cell) cells.push(cell);
-          }
-        }
-        return cells;
-      }
-      
-      // Normal rectangle selection (data area drag)
-      console.log("Data area drag detected");
-      for (let r = rect.startRow; r <= rect.endRow; r++) {
-        for (let c = rect.startCol; c <= rect.endCol; c++) {
-          const cell = this.getCellIfExists(r, c);
-          if (cell) cells.push(cell);
-        }
-      }
-      return cells;
-    }
+   
 
     // Check for selected columns array (for column header selections when not dragging)
     const selectedColumns = this.selMgr.getSelectedColumns();
@@ -2358,7 +2230,16 @@ export class Grid {
       }
       return cells;
     }
-
+    const selectedRows = this.selMgr.getSelectedRows();
+    if (selectedRows.length > 0) {
+      for (const row of selectedRows) {
+        for (let c = 0; c < COLS; c++) {
+          const cell = this.getCellIfExists(row, c);
+          if (cell) cells.push(cell);
+        }
+      }
+      return cells;
+    }
     // Check for row selection
     const selectedRow = this.selMgr.getSelectedRow();
     if (selectedRow !== null) {
@@ -2386,7 +2267,47 @@ export class Grid {
       if (cell) cells.push(cell);
       return cells;
     }
-
+    const rect = this.selMgr.getDragRect();
+    if (rect) {
+    console.log("getSelectedCells drag rect:", rect);
+      console.log("isColHeaderDrag:", this.isColHeaderDrag);
+      console.log("isRowHeaderDrag:", this.isRowHeaderDrag);
+      
+      // Check if this is a column header drag
+      // if (this.isColHeaderDrag) {
+      //   console.log("Column header drag detected");
+      //   const selectedColumns = this.selMgr.getSelectedColumns();
+      //   for (const col of selectedColumns) {
+      //     for (let r = 0; r < ROWS; r++) {
+      //       const cell = this.getCellIfExists(r, col);
+      //       if (cell) cells.push(cell);
+      //     }
+      //   }
+      //   return cells;
+      // }
+      
+      // Check if this is a row header drag
+      // if (this.isRowHeaderDrag) {
+      //   console.log("Row header drag detected");
+      //   for (let r = rect.startRow; r <= rect.endRow; r++) {
+      //     for (let c = 0; c < COLS; c++) {
+      //       const cell = this.getCellIfExists(r, c);
+      //       if (cell) cells.push(cell);
+      //     }
+      //   }
+      //   return cells;
+      // }
+      
+      // Normal rectangle selection (data area drag)
+      console.log("Data area drag detected");
+      for (let r = rect.startRow; r <= rect.endRow; r++) {
+        for (let c = rect.startCol; c <= rect.endCol; c++) {
+          const cell = this.getCellIfExists(r, c);
+          if (cell) cells.push(cell);
+        }
+      }
+      return cells;
+    }
     return cells;
   }
 

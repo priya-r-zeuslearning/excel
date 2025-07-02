@@ -165,11 +165,29 @@ export class GridRenderer {
         } else {
           this.ctx.font = "14px 'Arial', sans-serif";
         }
-        this.ctx.textAlign = "left";
-        this.ctx.textBaseline = "middle";
+        
         const cellValue = rowMap?.get(c)?.getValue() || "";
+        const isNumeric = this.isNumericValue(cellValue);
+        
+        // Set text alignment based on content type
+        if (isNumeric) {
+          this.ctx.textAlign = "right";
+        } else {
+          this.ctx.textAlign = "left";
+        }
+        
+        this.ctx.textBaseline = "middle";
         const clipped = this.clipText(cellValue, colW - 16);
-        this.ctx.fillText(clipped, xPos + 8, yPos + rowH - 10);
+        
+        // Calculate x position based on alignment
+        let textX: number;
+        if (isNumeric) {
+          textX = xPos + colW - 8; // Right-aligned with 8px padding from right edge
+        } else {
+          textX = xPos + 8; // Left-aligned with 8px padding from left edge
+        }
+        
+        this.ctx.fillText(clipped, textX, yPos + rowH - 10);
         xPos += colW;
       }
       yPos += rowH;
@@ -257,6 +275,16 @@ export class GridRenderer {
       text = text.slice(0, -1);
     }
     return text + "…";
+  }
+
+  /**
+   * Checks if a cell value contains only digits, decimals, or percentages.
+   * @param value the cell value to check
+   * @returns true if the value contains only digits, decimals, or percentages, false otherwise
+   */
+  private isNumericValue(value: string): boolean {
+    const cleanValue = value.trim();
+    return /^\d+$|^\d+\.\d+$|^\d+%$/.test(cleanValue);
   }
 
   /**

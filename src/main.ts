@@ -4,6 +4,10 @@ import { DataImporter } from "./core/DataImporter";
 window.addEventListener("DOMContentLoaded", () => {
   const canvas = document.getElementById("excelCanvas") as HTMLCanvasElement;
   const grid = new Grid(canvas);
+  
+  // Expose grid globally for console access
+  (window as any).grid = grid;
+  
   const importer = new DataImporter(grid);
   const importBtn = document.getElementById("importBtn") as HTMLButtonElement;
   const fileInput = document.getElementById("fileInput") as HTMLInputElement; 
