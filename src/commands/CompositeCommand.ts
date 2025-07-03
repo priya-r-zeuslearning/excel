@@ -1,7 +1,7 @@
 import type { Command } from "./Command";
 
 export class CompositeCommand implements Command {
-  private commands: Command[];
+  public readonly commands: Command[];
 
   constructor(commands: Command[]) {
     this.commands = commands;

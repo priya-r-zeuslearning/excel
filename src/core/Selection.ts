@@ -19,8 +19,7 @@ export interface DragRect {
  */
 export class SelectionManager {
   private selectedCell: { row: number; col: number } | null = null;
-  private selectedRow: number | null = null;
-  private selectedCol: number | null = null;
+  
   private selectedColumns: number[] = []; // Array to track selected columns
   private selectedRows: number[] = []; // Array to track selected rows
 
@@ -36,8 +35,7 @@ export class SelectionManager {
    */
   public clear(): void {
     this.selectedCell = null;
-    this.selectedRow = null;
-    this.selectedCol = null;
+
     this.selectedColumns = [];
     this.dragStart = null;
     this.dragEnd = null;
@@ -164,8 +162,7 @@ public selectEntireGrid(): void {
    */
   selectColumns(startCol: number, endCol: number): void {
     this.selectedCell = null;
-    this.selectedRow = null;
-    this.selectedCol = null;
+
     this.selectedColumns = [];
     this.selectedRows = [];
     for (let c = startCol; c <= endCol; c++) {
@@ -179,8 +176,6 @@ public selectEntireGrid(): void {
    */
   selectRows(startRow: number, endRow: number): void {
     this.selectedCell = null;
-    this.selectedRow = null;
-    this.selectedCol = null;
     this.selectedColumns = [];
     this.selectedRows = [];
     for (let r = startRow; r <= endRow; r++) {
@@ -193,16 +188,15 @@ public selectEntireGrid(): void {
    */
   public selectColumn(col: number): void {
     this.clear();
-    this.selectedCol = col;
     this.selectedColumns = [col];
   }
+
   /**
    * Selects a row.
    * @param row the row to select
    */
 public selectRow(row: number): void {
   this.clear();
-  this.selectedRow = row;
   this.selectedRows = [row];
 }
   /**
@@ -268,7 +262,7 @@ public selectRow(row: number): void {
    * @returns the selected row
    */
   public getSelectedRow() {
-    return this.selectedRow;
+    return this.selectedRows.length > 0 ? this.selectedRows[0] : null;
   }
 
   /**
@@ -276,7 +270,7 @@ public selectRow(row: number): void {
    * @returns the selected column
    */
   public getSelectedCol() {
-    return this.selectedCol;
+    return this.selectedColumns.length > 0 ? this.selectedColumns[0] : null;
   }
 
   /**
@@ -338,8 +332,8 @@ public selectRow(row: number): void {
     // const activeBorder = colors?.activeBorder || "#107C41";
 
     // Highlight entire column (border only, full height)
-    if (this.selectedCol !== null) {
-      const col = this.selectedCol;
+    if (this.selectedColumns.length === 1) {
+      const col = this.selectedColumns[0];
       const x = rowHeaderWidth + colMgr.getX(col) - scrollX;
       const w = colMgr.getWidth(col);
       const y = 0;
@@ -388,8 +382,8 @@ public selectRow(row: number): void {
       ctx.restore();
     }
     // Highlight entire row (border only, full width)
-    if (this.selectedRow !== null) {
-      const row = this.selectedRow;
+    if (this.selectedRows.length === 1) {
+      const row = this.selectedRows[0];
       const x = rowHeaderWidth ;
       const y = HEADER_SIZE + rowMgr.getY(row) - scrollY;
       const w = colMgr.getTotalWidth();
@@ -454,6 +448,7 @@ public selectRow(row: number): void {
    */
   public getSelectedColumns(): number[] {
     return [...this.selectedColumns];
+    
   }
   /**
    * Gets the array of selected rows.

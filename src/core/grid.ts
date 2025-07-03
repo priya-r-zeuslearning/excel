@@ -110,6 +110,21 @@ export class Grid {
 
   private clipboard: string[][] | null = null;
 
+  private columnSelectionAnchor: number | null = null;
+  private columnSelectionFocus: number | null = null;
+
+  private rowSelectionAnchor: number | null = null;
+  private rowSelectionFocus: number | null = null;
+
+  private _lastRenderTime: number = 0;
+  private throttledScheduleRender(): void {
+    const now = performance.now();
+    if (now - this._lastRenderTime > 16) { // ~60fps
+      this._lastRenderTime = now;
+      this.scheduleRender();
+    }
+  }
+
   /* ─────────────────────────────────────────────────────────────────── */
   /**
    * Initializes the Grid.
@@ -282,6 +297,10 @@ export class Grid {
    * @param evt - The pointer event
    */
   private onPointerDown(evt: PointerEvent): void {
+    this.columnSelectionAnchor = null;
+    this.columnSelectionFocus = null;
+    this.rowSelectionAnchor = null;
+    this.rowSelectionFocus = null;
     const rect = this.canvas.getBoundingClientRect();
     const mouseX = evt.clientX - rect.left;
     const mouseY = evt.clientY - rect.top;
@@ -350,6 +369,8 @@ export class Grid {
    * Insert row event handler
    */
   private onInsertRow(): void {
+    this.rowSelectionAnchor = null;
+    this.rowSelectionFocus = null;
     const selectedRow = this.selMgr.getSelectedRow();
     const selectedCell = this.selMgr.getSelectedCell();
     const insertAt =
@@ -368,6 +389,8 @@ export class Grid {
    * Insert column event handler
    */
   private onInsertColumn(): void {
+    this.columnSelectionAnchor = null;
+    this.columnSelectionFocus = null;
     const selectedCol = this.selMgr.getSelectedCol();
     const selectedCell = this.selMgr.getSelectedCell();
     const insertAt =
@@ -389,7 +412,8 @@ export class Grid {
    */
   private onDeleteRow(): void {
     const selectedRow = this.selMgr.getSelectedRow();
-
+    this.rowSelectionAnchor = null;
+    this.rowSelectionFocus = null;
     // Only delete if a row is specifically selected
     if (selectedRow === null) {
       return;
@@ -421,6 +445,8 @@ export class Grid {
    * Delete column event handler
    */
   private onDeleteColumn(): void {
+    this.columnSelectionAnchor = null;
+    this.columnSelectionFocus = null;
     const selectedCol = this.selMgr.getSelectedCol();
     const selectedCell = this.selMgr.getSelectedCell();
     if (selectedCol === null) {
@@ -543,6 +569,10 @@ export class Grid {
    * @param evt - The mouse event
    */
   private onMouseDown(evt: MouseEvent): void {
+    this.columnSelectionAnchor = null;
+    this.columnSelectionFocus = null;
+    this.rowSelectionAnchor = null;
+    this.rowSelectionFocus = null;
     // Use event offset for header hit-testing so header resize works when scrolled
     const rect = this.canvas.getBoundingClientRect();
     const mouseX = evt.clientX - rect.left;
@@ -557,12 +587,19 @@ export class Grid {
         this.dragStartX = evt.clientX;
         this.originalSize = this.colMgr.getWidth(col);
         this.isResizing = true;
-        this.currentResizeCommand = new ResizeColumnCommand(
-          this,
-          this.resizingCol,
-          this.originalSize,
-          this.originalSize
-        );
+        // Composite command for multi-column resize
+        const selectedCols = this.selMgr.getSelectedColumns();
+        if (selectedCols.length > 1 && selectedCols.includes(col)) {
+          const commands = selectedCols.map(c => new ResizeColumnCommand(this, c, this.colMgr.getWidth(c), this.colMgr.getWidth(c)));
+          this.currentResizeCommand = new CompositeCommand(commands);
+        } else {
+          this.currentResizeCommand = new ResizeColumnCommand(
+            this,
+            this.resizingCol,
+            this.originalSize,
+            this.originalSize
+          );
+        }
         this.ctx.strokeStyle = "#107C41";
         this.ctx.lineWidth = 2 / dpr;
         return;
@@ -572,6 +609,9 @@ export class Grid {
       this.isColHeaderDrag = true;
       this.isMouseDown = true;
       this.dragStartColHeader = colIndex;
+      // Set anchor and focus for mouse drag
+      this.columnSelectionAnchor = colIndex;
+      this.columnSelectionFocus = colIndex;
       this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
       this._colHeaderDragHasDragged = false; // helper flag
       // Clear any existing row selections when starting column selection
@@ -588,18 +628,28 @@ export class Grid {
         this.dragStartY = evt.clientY;
         this.originalSize = this.rowMgr.getHeight(row);
         this.isResizing = true;
-        this.currentResizeCommand = new ResizeRowCommand(
-          this,
-          this.resizingRow,
-          this.originalSize,
-          this.originalSize
-        );
+        // Composite command for multi-row resize
+        const selectedRows = this.selMgr.getSelectedRows();
+        if (selectedRows.length > 1 && selectedRows.includes(row)) {
+          const commands = selectedRows.map(r => new ResizeRowCommand(this, r, this.rowMgr.getHeight(r), this.rowMgr.getHeight(r)));
+          this.currentResizeCommand = new CompositeCommand(commands);
+        } else {
+          this.currentResizeCommand = new ResizeRowCommand(
+            this,
+            this.resizingRow,
+            this.originalSize,
+            this.originalSize
+          );
+        }
         return;
       }
       // --- Multi-row drag selection start ---
       this.isRowHeaderDrag = true;
       this.isMouseDown = true;
       this.dragStartRowHeader = row;
+      // Set anchor and focus for mouse drag
+      this.rowSelectionAnchor = row;
+      this.rowSelectionFocus = row;
       this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
       this._rowHeaderDragHasDragged = false;
       // Clear any existing column selections when starting row selection
@@ -699,7 +749,6 @@ export class Grid {
       if (this.selMgr.isDragging()) {
         const { col } = this.findColumnByOffset(x - HEADER_SIZE);
         this.selMgr.updateDrag(0, col);
-        
         // Update selected columns array based on drag range
         const startCol = Math.min(this.dragStartColHeader!, col);
         const endCol = Math.max(this.dragStartColHeader!, col);
@@ -708,8 +757,7 @@ export class Grid {
           selectedCols.push(c);
         }
         this.selMgr.setSelectedColumns(selectedCols);
-        
-        this.scheduleRender();
+        this.throttledScheduleRender();
       }
       return;
     }
@@ -740,7 +788,7 @@ export class Grid {
           selectedRows.push(r);
         }
         this.selMgr.setSelectedRows(selectedRows);
-        this.scheduleRender();
+        this.throttledScheduleRender();
       }
       return;
     }
@@ -768,7 +816,7 @@ export class Grid {
         const { row } = this.findRowByOffset(y - HEADER_SIZE);
         this.selMgr.updateDrag(row, col);
         this.scrollToCell(row, col);
-        this.scheduleRender();
+        this.throttledScheduleRender();
       }
     }
 
@@ -808,10 +856,23 @@ export class Grid {
     ) {
       const dx = evt.clientX - this.dragStartX;
       const newW = Math.max(40, this.originalSize + dx);
-      this.colMgr.setWidth(this.resizingCol, newW);
-      this.currentResizeCommand.updateNewSize(newW);
+      // If multiple columns are selected, resize all
+      const selectedCols = this.selMgr.getSelectedColumns();
+      if (selectedCols.length > 1 && selectedCols.includes(this.resizingCol) && this.currentResizeCommand instanceof CompositeCommand) {
+        // Update all commands in the composite
+        for (let i = 0; i < selectedCols.length; i++) {
+          this.colMgr.setWidth(selectedCols[i], newW);
+          const cmd = this.currentResizeCommand.commands[i];
+          if ('updateNewSize' in cmd && typeof cmd.updateNewSize === 'function') {
+            cmd.updateNewSize(newW);
+          }
+        }
+      } else {
+        this.colMgr.setWidth(this.resizingCol, newW);
+        this.currentResizeCommand.updateNewSize(newW);
+      }
       this.updateEditorPosition();
-      this.scheduleRender();
+      this.throttledScheduleRender();
     }
     /* Row resize */
     if (
@@ -821,10 +882,21 @@ export class Grid {
     ) {
       const dy = evt.clientY - this.dragStartY;
       const newH = Math.max(20, this.originalSize + dy);
-      this.rowMgr.setHeight(this.resizingRow, newH);
-      this.currentResizeCommand.updateNewSize(newH);
+      const selectedRows = this.selMgr.getSelectedRows();
+      if (selectedRows.length > 1 && selectedRows.includes(this.resizingRow) && this.currentResizeCommand instanceof CompositeCommand) {
+        for (let i = 0; i < selectedRows.length; i++) {
+          this.rowMgr.setHeight(selectedRows[i], newH);
+          const cmd = this.currentResizeCommand.commands[i];
+          if ('updateNewSize' in cmd && typeof cmd.updateNewSize === 'function') {
+            cmd.updateNewSize(newH);
+          }
+        }
+      } else {
+        this.rowMgr.setHeight(this.resizingRow, newH);
+        this.currentResizeCommand.updateNewSize(newH);
+      }
       this.updateEditorPosition();
-      this.scheduleRender();
+      this.throttledScheduleRender();
     }
   }
 
@@ -860,6 +932,10 @@ export class Grid {
       this._colHeaderDragHasDragged = false;
       this.computeSelectionStats();
       this.updateToolbarState();
+      this.columnSelectionAnchor = null;
+      this.columnSelectionFocus = null;
+      this.rowSelectionAnchor = null;
+      this.rowSelectionFocus = null;
       return;
     }
     // --- Multi-row drag selection end ---
@@ -881,6 +957,10 @@ export class Grid {
       this._rowHeaderDragHasDragged = false;
       this.computeSelectionStats();
       this.updateToolbarState();
+      this.columnSelectionAnchor = null;
+      this.columnSelectionFocus = null;
+      this.rowSelectionAnchor = null;
+      this.rowSelectionFocus = null;
       return;
     }
     this.isMouseDown = false;
@@ -890,12 +970,22 @@ export class Grid {
     // Finalize drag selection if we were dragging
     if (this.selMgr.isDragging()) {
       this.selMgr.endDrag();
-     
       this.scheduleRender();
+      // If a drag rectangle exists and covers more than one cell, start editing the top-left cell
+      const rect = this.selMgr.getDragRect();
+      if (rect && (rect.endRow > rect.startRow || rect.endCol > rect.startCol)) {
+        this.startEditingCell(rect.startRow, rect.startCol);
+      }
     }
 
+    // Only update toolbar and stats once, here
     this.computeSelectionStats();
     this.updateToolbarState();
+    // Reset anchor/focus
+    this.columnSelectionAnchor = null;
+    this.columnSelectionFocus = null;
+    this.rowSelectionAnchor = null;
+    this.rowSelectionFocus = null;
   }
 
   /**
@@ -903,6 +993,15 @@ export class Grid {
    * @param e - The keyboard event
    */
   private onKeyDown(e: KeyboardEvent): void {
+    // Prevent grid key handling if an input, textarea, or contenteditable is focused
+    const target = e.target as HTMLElement;
+    if (target && (
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.getAttribute("contenteditable") === "true"
+    )) {
+      return;
+    }
     // Only handle navigation if not editing a cell
     if (e.ctrlKey && e.key === "c") {
       // Copy selected cells to clipboard
@@ -945,8 +1044,81 @@ export class Grid {
       this.finishEditing(true);
       return;
     }
-
-  
+    // For row selection
+    const selectedRow = this.selMgr.getSelectedRow();
+    if (typeof selectedRow === "number") {
+      if (e.shiftKey) {
+        if (this.rowSelectionAnchor === null) {
+          // Use the first/last of the selected range as anchor if available
+          const selRows = this.selMgr.getSelectedRows();
+          this.rowSelectionAnchor = selRows.length > 0 ? selRows[0] : selectedRow;
+        }
+        if (this.rowSelectionFocus === null) {
+          // Use the last of the selected range as focus if available
+          const selRows = this.selMgr.getSelectedRows();
+          this.rowSelectionFocus = selRows.length > 0 ? selRows[selRows.length - 1] : selectedRow;
+        }
+        let anchor = this.rowSelectionAnchor;
+        let focus = this.rowSelectionFocus;
+        if (e.key === "ArrowDown" && focus < ROWS - 1) {
+          focus = focus + 1;
+        } else if (e.key === "ArrowUp" && focus > 0) {
+          focus = focus - 1;
+        }
+        this.rowSelectionFocus = focus;
+        const startRow = Math.min(anchor, focus);
+        const endRow = Math.max(anchor, focus);
+        const newRows: number[] = [];
+        for (let r = startRow; r <= endRow; r++) newRows.push(r);
+        this.selMgr.setSelectedRows(newRows);
+        this.scrollToCell(focus, 0); // Scroll to the new focus row
+        this.scheduleRender();
+        this.computeSelectionStats();
+        this.updateToolbarState();
+        return;
+      }
+    }
+    // For column selection
+    const selectedCol = this.selMgr.getSelectedCol();
+    if (typeof selectedCol === "number") {
+      if (e.shiftKey) {
+        if (this.columnSelectionAnchor === null) {
+          // Use the first/last of the selected range as anchor if available
+          const selCols = this.selMgr.getSelectedColumns();
+          this.columnSelectionAnchor = selCols.length > 0 ? selCols[0] : selectedCol;
+        }
+        if (this.columnSelectionFocus === null) {
+          // Use the last of the selected range as focus if available
+          const selCols = this.selMgr.getSelectedColumns();
+          this.columnSelectionFocus = selCols.length > 0 ? selCols[selCols.length - 1] : selectedCol;
+        }
+        let anchor = this.columnSelectionAnchor;
+        let focus = this.columnSelectionFocus;
+        if (e.key === "ArrowRight" && focus < COLS - 1) {
+          focus = focus + 1;
+        } else if (e.key === "ArrowLeft" && focus > 0) {
+          focus = focus - 1;
+        }
+        this.columnSelectionFocus = focus;
+        // Always select the range between anchor and focus
+        const startCol = Math.min(anchor, focus);
+        const endCol = Math.max(anchor, focus);
+        const newCols: number[] = [];
+        for (let c = startCol; c <= endCol; c++) newCols.push(c);
+        this.selMgr.setSelectedColumns(newCols);
+        this.scrollToCell(0, focus); // Scroll to the new focus column
+        this.scheduleRender();
+        this.computeSelectionStats();
+        this.updateToolbarState();
+        return;
+      } 
+    } else {
+      // If no column/row is selected, reset anchor/focus
+      this.columnSelectionAnchor = null;
+      this.columnSelectionFocus = null;
+      this.rowSelectionAnchor = null;
+      this.rowSelectionFocus = null;
+    }
     if (
       e.key === "ArrowRight" ||
       e.key === "ArrowLeft" ||
@@ -1086,6 +1258,27 @@ export class Grid {
       this.scheduleRender();
       return;
     }
+    //prevent default for all other keys
+    // Only start editing if a cell is selected and the key is a single character (printable)
+    // Only if the active element is NOT an input, textarea, or contenteditable
+    const active = document.activeElement;
+    if (
+      this.selMgr.getSelectedCell() !== null &&
+      e.key.length === 1 &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      (!active || (
+        active.tagName !== "INPUT" &&
+        active.tagName !== "TEXTAREA" &&
+        active.getAttribute("contenteditable") !== "true"
+      ))
+    ) {
+      e.preventDefault();
+      const selectedCell = this.selMgr.getSelectedCell()!;
+      this.startEditingCell(selectedCell.row, selectedCell.col, e.key);
+      return;
+    }
     this.computeSelectionStats();
     this.updateToolbarState();
   }
@@ -1096,7 +1289,7 @@ export class Grid {
    * @param row - The row of the cell
    * @param col - The column of the cell
    */
-  private startEditingCell(row: number, col: number): void {
+  private startEditingCell(row: number, col: number, initialValue?: string): void {
     const cell = this.getCell(row, col); // Creates only once
     this.editingCellInstance = cell;
 
@@ -1115,7 +1308,9 @@ export class Grid {
     this.editingCell = { row, col };
     
     // Always show the formula if the cell has one, otherwise show the value
-    if (cell.hasFormula()) {
+    if (typeof initialValue === "string") {
+      this.editorInput!.value = initialValue;
+    } else if (cell.hasFormula()) {
       this.editorInput!.value = cell.getFormula();
     } else {
       this.editorInput!.value = cell.getValue();
@@ -1123,6 +1318,10 @@ export class Grid {
     
     this.updateEditorPosition();
     this.editorInput!.focus();
+    // Move cursor to end for normal edit, or after first char for initialValue
+    if (typeof initialValue === "string") {
+      this.editorInput!.setSelectionRange(initialValue.length, initialValue.length);
+    }
   }
 
   private createEditorInput(): void {
