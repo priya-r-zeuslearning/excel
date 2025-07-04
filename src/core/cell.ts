@@ -19,6 +19,8 @@ export class Cell {
     private isBold: boolean = false;
     /** @type {boolean} Whether the cell text is italic. */
     private isItalic: boolean = false;
+    /** @type {string | undefined} Defines the cell content's alignment*/
+    private alignment?: 'left' | 'center' | 'right';
 
     /**
      * Initializes a Cell.
@@ -142,6 +144,14 @@ export class Cell {
      */
     setIsItalic(italic: boolean): void {
         this.isItalic = italic;
+    }
+
+    public getAlignment(): 'left' | 'center' | 'right' | undefined {
+      return this.alignment;
+    }
+    public setAlignment(alignment: 'left' | 'center' | 'right' |undefined ) {
+      console.log('Cell.setAlignment', alignment, 'for cell', this.row, this.col);
+      this.alignment = alignment;
     }
 }
   

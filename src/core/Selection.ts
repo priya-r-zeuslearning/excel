@@ -418,7 +418,7 @@ public selectRow(row: number): void {
         ctx.fillRect(x1 + 0.5, y1 + 0.5, x2 - x1 - 1, y2 - y1 - 1);
         ctx.strokeStyle = "#107C41";
         ctx.lineWidth = 2 / window.devicePixelRatio;
-        ctx.strokeRect(x1 - 0.5, y1 - 0.5, x2 - x1 + 1, y2 - y1 + 1);
+        ctx.strokeRect(x1 - 0.5, y1 - 0.5, x2 - x1 + 2, y2 - y1 + 2);
         ctx.restore();
     
       }
@@ -435,7 +435,7 @@ public selectRow(row: number): void {
       ctx.strokeStyle = "#107C41"; //checked
       ctx.lineWidth = 2 / window.devicePixelRatio;
  
-      ctx.strokeRect(x - 1, y - 1, w + 2, h + 2);
+      ctx.strokeRect(x-0.5 , y-0.5 , w + 2, h + 2);
       ctx.restore();
     }
 
