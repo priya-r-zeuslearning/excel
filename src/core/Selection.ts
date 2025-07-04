@@ -340,7 +340,7 @@ public selectRow(row: number): void {
       const h = rowMgr.getTotalHeight() + HEADER_SIZE;
       ctx.save();
       ctx.strokeStyle = "#107C41";
-      ctx.fillStyle = "#107C410a";
+      ctx.fillStyle = "#107C4110";
       ctx.fillRect(x + 0.5, y, w - 1, h);
       ctx.lineWidth = 1/ window.devicePixelRatio;
       ctx.strokeRect(x + 0.5, y, w - 1, h);
@@ -359,7 +359,7 @@ public selectRow(row: number): void {
       const h = rowMgr.getTotalHeight() + HEADER_SIZE;
       ctx.save();
       ctx.strokeStyle = "#107C41";
-      ctx.fillStyle = "#107C410a";
+      ctx.fillStyle = "#107C4110";
       ctx.fillRect(x + 0.5, y, w - 1, h);
       ctx.lineWidth = 1 / window.devicePixelRatio;
       ctx.strokeRect(x + 0.5, y, w - 1, h);
@@ -375,7 +375,7 @@ public selectRow(row: number): void {
       const h = rowMgr.getY(rightRow) - rowMgr.getY(leftRow) + rowMgr.getHeight(rightRow);
       ctx.save();
       ctx.strokeStyle = "#107C41";
-      ctx.fillStyle = "#107C410a";
+      ctx.fillStyle = "#107C4110";
       ctx.fillRect(x + 0.5, y + 0.5, w - 1, h - 1);
       ctx.lineWidth = 1 / window.devicePixelRatio;
       ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
@@ -390,7 +390,7 @@ public selectRow(row: number): void {
       const h = rowMgr.getHeight(row);
       ctx.save();
       ctx.strokeStyle = "#107C41";
-      ctx.fillStyle = "#107C410a";
+      ctx.fillStyle = "#107C4110";
       ctx.fillRect(x + 0.5, y + 0.5, w - 1, h - 1);
       ctx.lineWidth = 1/window.devicePixelRatio;
       ctx.strokeRect(x+0.5, y + .5, w +0.5, h - 0.5);
@@ -414,7 +414,7 @@ public selectRow(row: number): void {
         y1 = Math.max(y1, HEADER_SIZE);
       
         ctx.save();
-        ctx.fillStyle = "#107C410a";
+        ctx.fillStyle = "#107C4110";
         ctx.fillRect(x1 + 0.5, y1 + 0.5, x2 - x1 - 1, y2 - y1 - 1);
         ctx.strokeStyle = "#107C41";
         ctx.lineWidth = 2 / window.devicePixelRatio;
@@ -433,7 +433,7 @@ public selectRow(row: number): void {
       const h = rowMgr.getHeight(row) ;
       ctx.save();
       ctx.strokeStyle = "#107C41"; //checked
-      ctx.lineWidth = 3 / window.devicePixelRatio;
+      ctx.lineWidth = 2 / window.devicePixelRatio;
  
       ctx.strokeRect(x - 1, y - 1, w + 2, h + 2);
       ctx.restore();

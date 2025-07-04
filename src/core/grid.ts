@@ -125,6 +125,9 @@ export class Grid {
     }
   }
 
+  // Add this property to the class:
+  private pendingEditCell: { row: number; col: number } | null = null;
+  private isKeyDown: boolean = false;
   /* ─────────────────────────────────────────────────────────────────── */
   /**
    * Initializes the Grid.
@@ -297,10 +300,15 @@ export class Grid {
    * @param evt - The pointer event
    */
   private onPointerDown(evt: PointerEvent): void {
+    // Finish editing if a cell is being edited before changing selection
+    if (this.editorInput && this.editingCell) {
+      this.finishEditing(true);
+    }
     this.columnSelectionAnchor = null;
     this.columnSelectionFocus = null;
     this.rowSelectionAnchor = null;
     this.rowSelectionFocus = null;
+    // Use event offset for header hit-testing so header resize works when scrolled
     const rect = this.canvas.getBoundingClientRect();
     const mouseX = evt.clientX - rect.left;
     const mouseY = evt.clientY - rect.top;
@@ -569,6 +577,10 @@ export class Grid {
    * @param evt - The mouse event
    */
   private onMouseDown(evt: MouseEvent): void {
+    // Finish editing if a cell is being edited before changing selection
+    if (this.editorInput && this.editingCell) {
+      this.finishEditing(true);
+    }
     this.columnSelectionAnchor = null;
     this.columnSelectionFocus = null;
     this.rowSelectionAnchor = null;
@@ -677,6 +689,7 @@ export class Grid {
         this.isColHeaderDrag = false;
         this.isRowHeaderDrag = false;
         this.dragStartCell = { row, col };
+        this.pendingEditCell = { row, col }; // Only set for data area
         this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
       }
     }
@@ -815,6 +828,8 @@ export class Grid {
         const { col } = this.findColumnByOffset(x - HEADER_SIZE);
         const { row } = this.findRowByOffset(y - HEADER_SIZE);
         this.selMgr.updateDrag(row, col);
+       
+    
         this.scrollToCell(row, col);
         this.throttledScheduleRender();
       }
@@ -918,6 +933,7 @@ export class Grid {
       // If not dragged, treat as single column selection
       if (!this._colHeaderDragHasDragged && this.dragStartColHeader !== null) {
         this.selMgr.selectColumn(this.dragStartColHeader);
+        this.startEditingCell(0, this.dragStartColHeader);
         this.selMgr.clearSelectedColumns();
         this.selMgr.addSelectedColumn(this.dragStartColHeader);
         this.scheduleRender();
@@ -971,23 +987,19 @@ export class Grid {
     if (this.selMgr.isDragging()) {
       this.selMgr.endDrag();
       this.scheduleRender();
-      // If a drag rectangle exists and covers more than one cell, start editing the top-left cell
-      const rect = this.selMgr.getDragRect();
-      if (rect && (rect.endRow > rect.startRow || rect.endCol > rect.startCol)) {
-        this.startEditingCell(rect.startRow, rect.startCol);
-      }
+      // If a drag rectangle exists and covers more than one cell, set pendingEditCell
+      
+
+      // Only update toolbar and stats once, here
+      this.computeSelectionStats();
+      this.updateToolbarState();
+      // Reset anchor/focus
+      this.columnSelectionAnchor = null;
+      this.columnSelectionFocus = null;
+      this.rowSelectionAnchor = null;
+      this.rowSelectionFocus = null;
     }
-
-    // Only update toolbar and stats once, here
-    this.computeSelectionStats();
-    this.updateToolbarState();
-    // Reset anchor/focus
-    this.columnSelectionAnchor = null;
-    this.columnSelectionFocus = null;
-    this.rowSelectionAnchor = null;
-    this.rowSelectionFocus = null;
   }
-
   /**
    * Key down event handler
    * @param e - The keyboard event
@@ -1040,10 +1052,7 @@ export class Grid {
     }
     if (this.editingCell) return;
     //if any key is pressed while cell is seleted start editing but stop on enter or escape and support ctrl +z and ctrl +y
-    if (e.key === "Enter" || e.key === "Escape") {
-      this.finishEditing(true);
-      return;
-    }
+ 
     // For row selection
     const selectedRow = this.selMgr.getSelectedRow();
     if (typeof selectedRow === "number") {
@@ -1174,6 +1183,7 @@ export class Grid {
       if (e.shiftKey) {
         if (!this.selMgr.isDragging()) {
           this.selMgr.startDrag(anchorRow, anchorCol);
+         
         }
         this.selMgr.updateDrag(focusRow, focusCol);
         this.scrollToCell(focusRow, focusCol);
@@ -1275,12 +1285,70 @@ export class Grid {
       ))
     ) {
       e.preventDefault();
+      this.isKeyDown = false;
       const selectedCell = this.selMgr.getSelectedCell()!;
       this.startEditingCell(selectedCell.row, selectedCell.col, e.key);
       return;
     }
+    // If pendingEditCell is set, start editing it on keypress
+    if (
+      this.pendingEditCell &&
+      e.key.length === 1 &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      (!target || (
+        target.tagName !== "INPUT" &&
+        target.tagName !== "TEXTAREA" &&
+        target.getAttribute("contenteditable") !== "true"
+      ))
+    ) {
+      e.preventDefault();
+   
+  
+      const { row, col } = this.pendingEditCell;
+      // Draw the border at the correct cell's position in the viewport (fixed to the cell, not the 1st cell)
+      const x = this.rowHeaderWidth + this.colMgr.getX(col) - this.container.scrollLeft;
+      const y = HEADER_SIZE + this.rowMgr.getY(row) - this.container.scrollTop;
+      const w = this.colMgr.getWidth(col);
+      const h = this.rowMgr.getHeight(row);
+      this.ctx.save();
+      this.ctx.strokeStyle = "#107C41";
+      this.ctx.lineWidth = 2/window.devicePixelRatio;
+      this.ctx.strokeRect(x + 1, y + 1, w - 1, h - 1);
+      this.ctx.restore();
+      this.startEditingCell(row, col, e.key);
+      this.pendingEditCell = null;
+      return;
+    }
     this.computeSelectionStats();
     this.updateToolbarState();
+    if (this.editingCell && e.key === "Enter") {
+      // If a drag selection exists and is more than one cell
+      const rect = this.selMgr.getDragRect();
+      if (rect && (rect.endRow > rect.startRow || rect.endCol > rect.startCol)) {
+        const { row, col } = this.editingCell;
+        let nextRow = row + 1;
+        // If at the bottom, wrap to the top
+        if (nextRow > rect.endRow) nextRow = rect.startRow;
+        // Only move within the selected column
+        this.pendingEditCell = { row: nextRow, col };
+      } else {
+        this.pendingEditCell = null;
+      }
+      // this.finishEditing(true);
+      // Immediately start editing the next cell if pendingEditCell is set
+      if (this.pendingEditCell) {
+        const { row, col } = this.pendingEditCell;
+        this.startEditingCell(row, col);
+        this.pendingEditCell = null;
+      }
+      return;
+    }
+    if (e.key === "Enter" || e.key === "Escape") {
+      this.finishEditing(true);
+      return;
+    }
   }
 
   /* ────────── Editing overlay helpers ─────────────────────────────── */
@@ -1305,6 +1373,7 @@ export class Grid {
       this.stopMarchingAntsAnimation();
     }
 
+    this.pendingEditCell = null;
     this.editingCell = { row, col };
     
     // Always show the formula if the cell has one, otherwise show the value
@@ -1340,8 +1409,29 @@ export class Grid {
 
     this.editorInput.addEventListener("blur", () => this.finishEditing(true));
     this.editorInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") this.finishEditing(true);
-      if (e.key === "Escape") this.finishEditing(false);
+      if (e.key === "Enter") {
+        this.finishEditing(true);
+      } else if (e.key === "Escape") {
+        this.finishEditing(false);
+      } else if (
+        e.key === "ArrowDown" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight"
+      ) {
+        e.preventDefault();
+        if (this.editingCell) {
+          const { row, col } = this.editingCell;
+          let nextRow = row, nextCol = col;
+          if (e.key === "ArrowDown" && row < ROWS - 1) nextRow++;
+          if (e.key === "ArrowUp" && row > 0) nextRow--;
+          if (e.key === "ArrowLeft" && col > 0) nextCol--;
+          if (e.key === "ArrowRight" && col < COLS - 1) nextCol++;
+          this.finishEditing(true);
+          this.selMgr.selectCell(nextRow, nextCol);
+          this.startEditingCell(nextRow, nextCol);
+        }
+      }
     });
     
     // Add real-time formula range detection
@@ -1363,6 +1453,14 @@ export class Grid {
         this.formulaRange = null;
         this.stopMarchingAntsAnimation();
       }
+    });
+
+    this.editorInput.style.caretColor = "transparent";
+    this.editorInput.addEventListener("focus", () => {
+      this.editorInput!.style.caretColor = "#107C41";
+    });
+    this.editorInput.addEventListener("blur", () => {
+      this.editorInput!.style.caretColor = "transparent";
     });
   }
   /**
@@ -1577,11 +1675,11 @@ export class Grid {
     ctx.setLineDash([4, 2]); // Dash pattern
     ctx.lineDashOffset = this.dashOffset;
     ctx.strokeStyle = "#217346";
-    ctx.lineWidth = 3 / dpr;
-    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    ctx.lineWidth = 4 / dpr;
+    ctx.strokeRect(x1, y1, x2 - x1+1, y2 - y1+1);
     ctx.restore();
   }
-  
+  private showPendingEditBorder: boolean = false;
   /**
    * Updates the editor position
    */
@@ -1592,27 +1690,55 @@ export class Grid {
     const scrollX = this.container.scrollLeft;
     const scrollY = this.container.scrollTop;
 
+    // Get header and toolbar heights from CSS variables (parse as float, trim spaces)
+    const root = document.documentElement;
+    const headerHeight = parseFloat(getComputedStyle(root).getPropertyValue('--header-height').trim()) || 56;
+    const toolbarHeight = parseFloat(getComputedStyle(root).getPropertyValue('--toolbar-height').trim()) || 48;
+
+    // Add HEADER_SIZE for the grid's own header row
     const left = this.rowHeaderWidth + this.colMgr.getX(col) - scrollX;
-    const top = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
+    const top = headerHeight + toolbarHeight + HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
+
+    // Determine padding based on cell value (numeric = right-aligned)
+    let paddingLeft = "8px";
+    let paddingRight = "8px";
+    const cell = this.getCellIfExists(row, col);
+    if (cell && this.isNumericValue(cell.getValue())) {
+      paddingLeft = "0px";
+      paddingRight = "8px";
+      this.editorInput.style.textAlign = "right";
+    } else {
+      paddingLeft = "7px";
+      paddingRight = "8px";
+      this.editorInput.style.textAlign = "left";
+    }
 
     Object.assign(this.editorInput.style, {
-      left: `${left + 3}px`,
-      top: `${top + 112}px`,
-      // bottom: `${this.rowMgr.getHeight(row) - 9}px`,
-      width: `${this.colMgr.getWidth(col) - 6}px`,
-      height: `${this.rowMgr.getHeight(row) - 9}px`,
+      left: `${left + 1}px`,
+      top: `${top+1}px`,
+      width: `${this.colMgr.getWidth(col) - 3}px`,
+      height: `${this.rowMgr.getHeight(row)-2}px`,
       zIndex: "8",
       display: "block",
-    } as CSSStyleDeclaration);
-    // this.drawHeader(row, false, top, this.rowMgr.getHeight(row));
-    // this.drawHeader(col, true, left, this.colMgr.getWidth(col));
+      paddingLeft,
+      paddingRight,
+      paddingTop: `${this.rowMgr.getHeight(row) - 22}px`, // Push text to bottom
+      paddingBottom: "0px",
+      lineHeight: "16px", // match font size or desired line height
+      verticalAlign: "bottom", // optional, does nothing here
+    });
+    
+    this.showPendingEditBorder = true;
   }
+
+  
 
   /**
    * Finishes editing a cell
    * @param commit - Whether to commit the changes
    */
   private finishEditing(commit: boolean): void {
+    console.log("finishEditing called", commit, this.editingCell, this.editorInput);
     if (!this.editorInput || !this.editingCell || !this.editingCellInstance)
       return;
 
@@ -1651,6 +1777,24 @@ export class Grid {
       this.formulaRange = null;
       this.stopMarchingAntsAnimation();
     }
+
+    // If another cell is selected, shift focus there and start editing
+    const selectedCell = this.selMgr.getSelectedCell();
+    if (
+      selectedCell &&
+      (!this.editingCell ||
+        selectedCell.row !== this.editingCell.row ||
+        selectedCell.col !== this.editingCell.col)
+    ) {
+      this.editorInput.style.display = "none";
+      this.editingCellInstance = null;
+      this.editingCell = null;
+      this.scheduleRender();
+      this.startEditingCell(selectedCell.row, selectedCell.col);
+      return;
+    }
+
+
 
     this.editorInput.style.display = "none";
     this.editingCell = null;
@@ -1934,6 +2078,58 @@ export class Grid {
       this.drawHeader(r, false, y, h);
       y += h;
     }
+
+    // Highlight pendingEditCell (soft focus, no border)
+    if (this.pendingEditCell) {
+      const { row, col } = this.pendingEditCell;
+      const x = this.rowHeaderWidth + this.colMgr.getX(col) - scrollX;
+      const y = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
+      const w = this.colMgr.getWidth(col);
+      const h = this.rowMgr.getHeight(row);
+      this.ctx.save();
+      this.ctx.fillStyle = "#fff";
+      this.ctx.fillRect(x+1, y+1, w-2, h-2);
+      // Draw the cell text again so it's visible on white
+      const cell = this.getCellIfExists(row, col);
+      if (cell) {
+        const fontSize = cell.getFontSize();
+        const isBold = cell.getIsBold();
+        const isItalic = cell.getIsItalic();
+        let fontStyle = "";
+        if (isBold && isItalic) fontStyle = "bold italic";
+        else if (isBold) fontStyle = "bold";
+        else if (isItalic) fontStyle = "italic";
+        else fontStyle = "normal";
+        this.ctx.font = `${fontStyle} ${fontSize}px 'Arial', sans-serif`;
+        const cellValue = cell.getValue() || "";
+        const isNumeric = this.isNumericValue(cellValue);
+        this.ctx.fillStyle = "#222";
+        this.ctx.textBaseline = "middle";
+        this.ctx.textAlign = isNumeric ? "right" : "left";
+        const clipped = this.clipText(cellValue, w - 16);
+        let textX: number;
+        if (isNumeric) textX = x + w - 8;
+        else textX = x + 8;
+        this.ctx.fillText(clipped, textX, y + h - 10);
+      }
+   
+      this.ctx.restore();
+    }
+    // Draw a green border around the cell being edited ONLY if the editor input is visible
+    // if (this.editingCell && this.editorInput && this.editorInput.style.opacity !== '0' && document.activeElement === this.editorInput) {
+    //   const { row, col } = this.editingCell;
+    //   const x = this.rowHeaderWidth + this.colMgr.getX(col) - scrollX;
+    //   const y = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
+    //   const w = this.colMgr.getWidth(col);
+    //   const h = this.rowMgr.getHeight(row);
+    //   this.ctx.save();
+    //   this.ctx.strokeStyle = "#107C41";
+    //   this.ctx.lineWidth = 2;
+    //   this.ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    //   this.ctx.restore();
+    // }
+    // At the end of render(), always reset isKeyDown to false
+    this.isKeyDown = false;
   }
 
   private isSearchResult(row: number, col: number): boolean {
