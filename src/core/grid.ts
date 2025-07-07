@@ -1,4 +1,4 @@
-// src/core/Grid.ts
+// imports
 import { Cell } from "./cell";
 import { RowManager } from "./RowManager";
 import { ColumnManager } from "./ColumnManager";
@@ -14,7 +14,6 @@ import { Aggregator } from "./Aggregator";
 import { evaluateFormula } from "../formulas/FormulaEvaluator";
 import { getCoordinates } from "../utils/CellRange";
 import { PasteCommand } from "../commands/PasteCommand";
-import { CopyCommand } from "../commands/CopyCommand";
 import { CompositeCommand } from "../commands/CompositeCommand";
 import { ClipboardManager } from "../commands/ClipboardManager";
 import { AlignmentCommand } from "../commands/AlignmentCommand";
@@ -59,6 +58,7 @@ export class Grid {
   private readonly selMgr: SelectionManager;
   /**@type {number} Specifies the width of the row Header that changes based on the label */
   private rowHeaderWidth: number = 40;
+  /** @type {Map} cells which are map of maps  */
   public cells: Map<number, Map<number, Cell>> = new Map();
   /** @type {HTMLInputElement|null} The input element for cell editing. */
   private editorInput: HTMLInputElement | null = null;
@@ -90,18 +90,24 @@ export class Grid {
   private originalSize: number = 0;
   private commandManager: CommandManager = new CommandManager();
   // Add these properties to track resize operations
+  /** @type {any} command for resizing */
   private currentResizeCommand: any = null;
+  /** @type {boolean} determines if resizing is currently happenning or not */
   private isResizing: boolean = false;
+  /** @type {number} the offest used in marching ants */
   private dashOffset: number = 0;
+  /** @type {{startRow:number, startCol: number, endRow: number, endCol: number}} hold the range of data for whose calculations are to be made*/
   private formulaRange: { startRow: number; startCol: number; endRow: number; endCol: number } | null = null;
+ /** @type {number|null} id of the animation returned by requestAnimationFrame */
   private animationId: number | null = null;
-
+ /** @type {Cell|null} saves the current cell which is being edited */
   private editingCellInstance: Cell | null = null;
 
   /** @type {number|null} The column being resized, if any. */
   private resizingCol: number | null = null;
 
   // Helper flag to track if header drag has moved
+/** @type {boolean} Whether the column header drag has moved. */
   private _colHeaderDragHasDragged: boolean = false;
 
   /** @type {boolean} Whether the mouse is currently dragging on row headers. */
@@ -109,20 +115,33 @@ export class Grid {
   /** @type {number|null} The row where row header drag started. */
   private dragStartRowHeader: number | null = null;
   // Helper flag to track if row header drag has moved
+  /** @type {boolean} Whether the row header drag has moved. */
   private _rowHeaderDragHasDragged: boolean = false;
 
   // Track hover state for top-left box
+  /** @type {boolean} Whether the top-left box is hovered. */
   private _isTopLeftHovered: boolean = false;
 
+  /** @type {string[][]|null} The clipboard data. */
   private clipboard: string[][] | null = null;
 
+  /** @type {number|null} The column selection anchor. */
   private columnSelectionAnchor: number | null = null;
+  /** @type {number|null} The column selection focus. */
   private columnSelectionFocus: number | null = null;
 
+  /** @type {number|null} The row selection anchor. */
   private rowSelectionAnchor: number | null = null;
+  /** @type {number|null} The row selection focus. */
   private rowSelectionFocus: number | null = null;
 
+  /** @type {number} The last render time. */
   private _lastRenderTime: number = 0;
+  /**
+   * Shifts cells to the right.
+  /**
+   * Throttles the schedule render.
+   */
   private throttledScheduleRender(): void {
     const now = performance.now();
     if (now - this._lastRenderTime > 16) { // ~60fps
@@ -132,7 +151,9 @@ export class Grid {
   }
 
   // Add this property to the class:
+  /** @type {{row: number, col: number}|null} The pending edit cell. */
   private pendingEditCell: { row: number; col: number } | null = null;
+  /** @type {boolean} Whether the key is down. */
   private isKeyDown: boolean = false;
   /* ─────────────────────────────────────────────────────────────────── */
   /**
@@ -203,9 +224,7 @@ export class Grid {
     });
   }
 
-  /* ────────── PRIVATE UTILS ────────────────────────────────────────── */
 
-  /* ────────── Initialisation ───────────────────────────────────────── */
   /**
    * Initializes the cell storage for the grid.
    */
@@ -235,7 +254,6 @@ export class Grid {
     return cell ? cell.getValue() : "";
   }
 
-  /* ────────── Event wiring ─────────────────────────────────────────── */
   /**
    * Adds all event listeners for mouse and keyboard interaction.
    */
@@ -549,7 +567,7 @@ export class Grid {
    * Shift cells left
    * @param deleteAt - The column to delete at
    */
-  public shiftCellsLeft(deleteAt: number): void {
+  public  shiftCellsLeft(deleteAt: number): void {
     for (const rowMap of this.cells.values()) {
       // Remove the deleted column first
       rowMap.delete(deleteAt);
@@ -566,7 +584,6 @@ export class Grid {
     }
   }
 
-  /* ────────── Mouse handlers (selection / resize / edit) ───────────── */
   /**
    * Mouse down event handler
    * @param evt - The mouse event
@@ -831,28 +848,6 @@ export class Grid {
         this.throttledScheduleRender();
       }
     }
-
-    /* Header hover tint ---------------------------------------------- */
-    // if (!this.selMgr.isDragging()) {
-    //   if (y < HEADER_SIZE && x >= HEADER_SIZE) {
-    //     // column header
-    //     this.scheduleRender(); // ensure repaint
-    //     this.ctx.fillStyle = "rgba(173,205,255,0.25)";
-    //     const { col } = this.findColumnByOffset(x - HEADER_SIZE);
-    //     const scrollX = this.container.scrollLeft;
-    //     const hx = HEADER_SIZE + this.colMgr.getX(col) - scrollX;
-    //     this.ctx.fillRect(hx, 0, this.colMgr.getWidth(col), HEADER_SIZE);
-    //   }
-    //   if (x < HEADER_SIZE && y >= HEADER_SIZE) {
-    //     // row header
-    //     this.scheduleRender();
-    //     this.ctx.fillStyle = "rgb(0, 0, 0)";
-    //     const { row } = this.findRowByOffset(y - HEADER_SIZE);
-    //     const scrollY = this.container.scrollTop;
-    //     const hy = HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
-    //     this.ctx.fillRect(0, hy, HEADER_SIZE, this.rowMgr.getHeight(row));
-    //   }
-    // }
   }
 
   /**
@@ -1261,20 +1256,10 @@ export class Grid {
       if (this.selMgr.getSelectedCol() !== null) {
         this.onDeleteColumn();
       }
-      // } if(this.selMgr.getSelectedCell() !== null)
-      // {
-      //   this.onDeleteCell();
-      // }
       this.scheduleRender();
       return;
     }
     if (e.key === "Delete") {
-      // if (this.selMgr.isDragging()) {
-      //   this.onDeleteRow();
-      //   this.onDeleteColumn();
-      //   this.scheduleRender();
-      //   return;
-      // }
       if (this.selMgr.getSelectedCell() !== null) {
         const cell = this.getCell(
           this.selMgr.getSelectedCell()!.row,
@@ -1304,9 +1289,6 @@ export class Grid {
       this.scheduleRender();
       return;
     }
-    //prevent default for all other keys
-    // Only start editing if a cell is selected and the key is a single character (printable)
-    // Only if the active element is NOT an input, textarea, or contenteditable
     const active = document.activeElement;
     if (
       this.selMgr.getSelectedCell() !== null &&
@@ -1326,7 +1308,6 @@ export class Grid {
       this.startEditingCell(selectedCell.row, selectedCell.col, e.key);
       return;
     }
-    // If pendingEditCell is set, start editing it on keypress
     if (
       this.pendingEditCell &&
       e.key.length === 1 &&
@@ -1340,18 +1321,7 @@ export class Grid {
       ))
     ) {
       e.preventDefault();
-   
-  
       const { row, col } = this.pendingEditCell;
-      // Draw the border at the correct cell's position in the viewport (fixed to the cell, not the 1st cell)
-      const x = this.rowHeaderWidth + this.colMgr.getX(col) - this.container.scrollLeft;
-      const y = HEADER_SIZE + this.rowMgr.getY(row) - this.container.scrollTop;
-      const w = this.colMgr.getWidth(col);
-      const h = this.rowMgr.getHeight(row);
-      this.ctx.save();
-      // this.ctx.strokeStyle = "#107C41";
-      // this.ctx.lineWidth = 2/window.devicePixelRatio;
-      // this.ctx.strokeRect(x + 1, y + 1, w - 1, h - 1);
       this.ctx.restore();
       this.startEditingCell(row, col, e.key);
       this.pendingEditCell = null;
@@ -1389,7 +1359,7 @@ export class Grid {
     
   }
 
-  /* ────────── Editing overlay helpers ─────────────────────────────── */
+
   /**
    * Start editing a cell
    * @param row - The row of the cell
@@ -1430,7 +1400,9 @@ export class Grid {
       this.editorInput!.setSelectionRange(initialValue.length, initialValue.length);
     }
   }
-
+/**
+ * Creates an input element 
+ */
   private createEditorInput(): void {
     this.editorInput = document.createElement("input");
     this.editorInput.className = "cell-editor";
@@ -1719,7 +1691,7 @@ export class Grid {
     ctx.strokeRect(x1-0.5, y1-0.5, x2 - x1+1, y2 - y1+1);
     ctx.restore();
   }
-  private showPendingEditBorder: boolean = false;
+
   /**
    * Updates the editor position
    */
@@ -1768,7 +1740,7 @@ export class Grid {
       verticalAlign: "bottom", // optional, does nothing here
     });
     
-    this.showPendingEditBorder = true;
+ 
   }
 
   
@@ -2357,8 +2329,8 @@ export class Grid {
     ctx.beginPath();
 
     if (isColumn) {
-      ctx.moveTo(x, y + h - 0.5);
-      ctx.lineTo(x + w, y + h - 0.5);
+      ctx.moveTo(x+0.5, y + h +0.5);
+      ctx.lineTo(x + w, y + h +0.5);
       if (!highlight) {
         ctx.moveTo(x + 0.5, y);
         ctx.lineTo(x, y + h);
