@@ -12,6 +12,15 @@ export interface DragRect {
   endCol: number;
 }
 
+/**
+ * Interface for selected cell range
+ */
+export interface SelectedCellRange {
+  startRow: number;
+  endRow: number;
+  startCol: number;
+  endCol: number;
+}
 
 /**
  * Centralises **all** selection‑related state (active cell, full row/col, drag rectangle)
@@ -22,6 +31,7 @@ export class SelectionManager {
   
   private selectedColumns: number[] = []; // Array to track selected columns
   private selectedRows: number[] = []; // Array to track selected rows
+  private selectedCellRange: SelectedCellRange | null = null; // Track selected cell range
 
   private dragStart: { row: number | null; col: number } | null = null;
   private dragEnd: { row: number | null; col: number|null } | null = null;
@@ -37,6 +47,7 @@ export class SelectionManager {
     this.selectedCell = null;
 
     this.selectedColumns = [];
+    this.selectedCellRange = null;
     this.dragStart = null;
     this.dragEnd = null;
     this.dragging = false;
@@ -81,6 +92,13 @@ public selectAll(): void {
     startCol: 0,
     endCol: maxSelectCols - 1,
   };
+  
+  this.selectedCellRange = {
+    startRow: 0,
+    endRow: maxSelectRows - 1,
+    startCol: 0,
+    endCol: maxSelectCols - 1,
+  };
 }
 
 /**
@@ -117,9 +135,23 @@ public selectAllWithData(grid: any): void {
       startCol: minCol,
       endCol: maxCol,
     };
+    
+    this.selectedCellRange = {
+      startRow: minRow,
+      endRow: maxRow,
+      startCol: minCol,
+      endCol: maxCol,
+    };
   } else {
     // If no data, select a small default range
     this.dragRect = {
+      startRow: 0,
+      endRow: 9,
+      startCol: 0,
+      endCol: 9,
+    };
+    
+    this.selectedCellRange = {
       startRow: 0,
       endRow: 9,
       startCol: 0,
@@ -141,6 +173,13 @@ public selectEntireGrid(): void {
     endCol: COLS - 1,
   };
   
+  this.selectedCellRange = {
+    startRow: 0,
+    endRow: ROWS - 1,
+    startCol: 0,
+    endCol: COLS - 1,
+  };
+  
   // Show a warning in the console
   console.warn("Entire grid selected - this may cause performance issues with large grids");
 }
@@ -153,6 +192,31 @@ public selectEntireGrid(): void {
   public selectCell(row: number, col: number): void {
     this.clear();
     this.selectedCell = { row, col };
+    this.selectedCellRange = { startRow: row, endRow: row, startCol: col, endCol: col };
+  }
+
+  /**
+   * Sets a range of selected cells.
+   * @param startRow the start row of the range
+   * @param startCol the start column of the range
+   * @param endRow the end row of the range
+   * @param endCol the end column of the range
+   */
+  public setSelectedCellRange(startRow: number, startCol: number, endRow: number, endCol: number): void {
+    this.selectedCellRange = {
+      startRow: Math.min(startRow, endRow),
+      endRow: Math.max(startRow, endRow),
+      startCol: Math.min(startCol, endCol),
+      endCol: Math.max(startCol, endCol),
+    };
+  }
+
+  /**
+   * Gets the currently selected cell range (returns dragRect if present).
+   * @returns the selected cell range or null if no range is selected
+   */
+  public getSelectedCellRange(): DragRect | null {
+    return this.getDragRect();
   }
 
   /**
@@ -162,6 +226,7 @@ public selectEntireGrid(): void {
    */
   selectColumns(startCol: number, endCol: number): void {
     this.selectedCell = null;
+    this.selectedCellRange = null;
 
     this.selectedColumns = [];
     this.selectedRows = [];
@@ -176,6 +241,7 @@ public selectEntireGrid(): void {
    */
   selectRows(startRow: number, endRow: number): void {
     this.selectedCell = null;
+    this.selectedCellRange = null;
     this.selectedColumns = [];
     this.selectedRows = [];
     for (let r = startRow; r <= endRow; r++) {
@@ -222,7 +288,10 @@ public selectRow(row: number): void {
     if (!this.dragging || !this.dragStart) return;
     this.dragEnd = { row, col };
 
- 
+    // Update the selected cell range during drag
+    if (this.dragStart.row !== null && row !== null && col !== null) {
+      this.setSelectedCellRange(this.dragStart.row, this.dragStart.col, row, col);
+    }
   }
 
   /**

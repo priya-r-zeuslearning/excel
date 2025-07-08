@@ -21,6 +21,13 @@ import { InsertRowCommand } from "../commands/InsertRowCommand";
 import { DeleteRowCommand } from "../commands/DeleteRowCommand";
 import { InsertColumnCommand } from "../commands/InsertColumnCommand";
 import { DeleteColumnCommand } from "../commands/DeleteColumnCommand";
+import { EventRouter } from '../handlers/EventRouter';
+import { ColumnResizeHandler } from '../handlers/resize/ColumnResizeHandler';
+import { RowResizeHandler } from '../handlers/resize/RowResizeHandler';
+import { HeaderDragHandler } from '../handlers/drag/HeaderDragHandler';
+import { CellSelectHandler } from '../handlers/select/CellSelectHandler';
+import { RowSelectHandler } from '../handlers/select/RowSelectHandler';
+
 
 /**
  * Default sizes used by managers on first construction.
@@ -28,8 +35,8 @@ import { DeleteColumnCommand } from "../commands/DeleteColumnCommand";
 const DEFAULT_COL_WIDTH = 100;
 const DEFAULT_ROW_HEIGHT = 30;
 
-export const ROWS = 100_000;
-export const COLS = 5000;
+export const ROWS = 100_500;
+export const COLS = 5001;
 
 /** How many extra rows / columns to draw outside the viewport */
 const RENDER_BUFFER_PX = 200;
@@ -39,7 +46,7 @@ const HEADER_SIZE = 40;
 
 /** How many pixels near an edge counts as a "resize hotspot" */
 const RESIZE_GUTTER = 5;
-const dpr = window.devicePixelRatio || 1;
+let dpr = window.devicePixelRatio || 1;
 /**
  * @class Grid
  * @classdesc Manages rendering, selection, editing, and resizing of a spreadsheet-like canvas grid.
@@ -96,18 +103,23 @@ export class Grid {
   private isResizing: boolean = false;
   /** @type {number} the offest used in marching ants */
   private dashOffset: number = 0;
-  /** @type {{startRow:number, startCol: number, endRow: number, endCol: number}} hold the range of data for whose calculations are to be made*/
-  private formulaRange: { startRow: number; startCol: number; endRow: number; endCol: number } | null = null;
- /** @type {number|null} id of the animation returned by requestAnimationFrame */
+  /** @type {{startRow:number, startCol: number, endRow: number, endCol: number}|null} hold the range of data for whose calculations are to be made*/
+  private formulaRange: {
+    startRow: number;
+    startCol: number;
+    endRow: number;
+    endCol: number;
+  } | null = null;
+  /** @type {number|null} id of the animation returned by requestAnimationFrame */
   private animationId: number | null = null;
- /** @type {Cell|null} saves the current cell which is being edited */
+  /** @type {Cell|null} saves the current cell which is being edited */
   private editingCellInstance: Cell | null = null;
 
   /** @type {number|null} The column being resized, if any. */
   private resizingCol: number | null = null;
 
   // Helper flag to track if header drag has moved
-/** @type {boolean} Whether the column header drag has moved. */
+  /** @type {boolean} Whether the column header drag has moved. */
   private _colHeaderDragHasDragged: boolean = false;
 
   /** @type {boolean} Whether the mouse is currently dragging on row headers. */
@@ -142,19 +154,26 @@ export class Grid {
   /**
    * Throttles the schedule render.
    */
-  private throttledScheduleRender(): void {
-    const now = performance.now();
-    if (now - this._lastRenderTime > 16) { // ~60fps
-      this._lastRenderTime = now;
-      this.scheduleRender();
-    }
-  }
+  // private throttledScheduleRender(): void {
+  //   const now = performance.now();
+  //   if (now - this._lastRenderTime > 16) {
+  //     // ~60fps
+  //     this._lastRenderTime = now;
+  //     this.scheduleRender();
+  //   }
+  // }
 
   // Add this property to the class:
   /** @type {{row: number, col: number}|null} The pending edit cell. */
   private pendingEditCell: { row: number; col: number } | null = null;
-  /** @type {boolean} Whether the key is down. */
-  private isKeyDown: boolean = false;
+
+  private eventRouter: EventRouter;
+  private columnResizeHandler: ColumnResizeHandler;
+  private rowResizeHandler: RowResizeHandler;
+  private headerDragHandler: HeaderDragHandler;
+  private rowSelectHandler: RowSelectHandler;
+  private cellSelectHandler: CellSelectHandler;
+
   /* ─────────────────────────────────────────────────────────────────── */
   /**
    * Initializes the Grid.
@@ -197,6 +216,19 @@ export class Grid {
     const virtualWidth = this.colMgr.getTotalWidth();
     filler.style.height = virtualHeight + "px";
     filler.style.width = virtualWidth + "px";
+    this.canvas.style.cursor ="cell"
+    this.columnResizeHandler = new ColumnResizeHandler(this);
+    this.rowResizeHandler = new RowResizeHandler(this);
+    this.headerDragHandler = new HeaderDragHandler(this);
+    this.rowSelectHandler = new RowSelectHandler(this);
+    this.cellSelectHandler = new CellSelectHandler(this);
+    this.eventRouter = new EventRouter([
+      this.columnResizeHandler,
+      this.rowResizeHandler,
+      this.headerDragHandler,
+      this.rowSelectHandler,
+      this.cellSelectHandler,
+    ]);
 
     this.addEventListeners();
     this.resizeCanvas();
@@ -212,6 +244,7 @@ export class Grid {
   private resizeCanvas(): void {
     this.canvas.width = this.container.clientWidth;
     this.canvas.height = this.container.clientHeight;
+    dpr = window.devicePixelRatio
     this.scheduleRender();
   }
 
@@ -223,7 +256,6 @@ export class Grid {
       this.renderScheduled = false;
     });
   }
-
 
   /**
    * Initializes the cell storage for the grid.
@@ -259,21 +291,25 @@ export class Grid {
    */
   private addEventListeners(): void {
     // Use pointer events for unified input
-    this.canvas.addEventListener("pointerdown", this.onPointerDown.bind(this));
-    this.canvas.addEventListener("dblclick", this.onDoubleClick.bind(this));
-    this.canvas.addEventListener("pointermove", this.onPointerMove.bind(this));
-    window.addEventListener("pointermove", this.onPointerDrag.bind(this));
-    window.addEventListener("pointerup", this.onPointerUp.bind(this));
+    this.canvas.addEventListener('pointerdown', (evt) => this.eventRouter.onPointerDown(evt as unknown as MouseEvent));
+    this.canvas.addEventListener('pointermove', (evt) => this.eventRouter.onPointerMove(evt as unknown as MouseEvent));
+    window.addEventListener('pointermove', (evt) => this.eventRouter.onPointerDrag(evt as unknown as MouseEvent));
+    window.addEventListener('pointerup', (evt) => this.eventRouter.onPointerUp(evt as unknown as MouseEvent));
     window.addEventListener("keydown", this.onKeyDown.bind(this));
     const undoButton = document.getElementById("undoBtn")!;
     undoButton.addEventListener("click", this.onUndo.bind(this));
     const redoButton = document.getElementById("redoBtn")!;
     redoButton.addEventListener("click", this.onRedo.bind(this));
+    this.canvas.addEventListener('dblclick', this.onDoubleClick.bind(this) )
 
     // Search functionality
-    const searchInput = document.getElementById("searchInput") as HTMLInputElement;
+    const searchInput = document.getElementById(
+      "searchInput"
+    ) as HTMLInputElement;
     if (searchInput) {
-      searchInput.addEventListener("input", () => this.searchCell(searchInput.value));
+      searchInput.addEventListener("input", () =>
+        this.searchCell(searchInput.value)
+      );
       searchInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
           e.preventDefault();
@@ -284,17 +320,6 @@ export class Grid {
           searchInput.blur();
         }
       });
-    }
-
-    // Search navigation buttons
-    const searchNextBtn = document.getElementById("searchNextBtn");
-    if (searchNextBtn) {
-      searchNextBtn.addEventListener("click", () => this.navigateSearchResults("next"));
-    }
-
-    const searchPrevBtn = document.getElementById("searchPrevBtn");
-    if (searchPrevBtn) {
-      searchPrevBtn.addEventListener("click", () => this.navigateSearchResults("prev"));
     }
 
     // Toolbar buttons
@@ -318,75 +343,22 @@ export class Grid {
     italicBtn.addEventListener("click", this.onItalicToggle.bind(this));
 
     const alignLeftBtn = document.getElementById("alignLeftBtn");
-    if (alignLeftBtn) alignLeftBtn.addEventListener("click", () => this.applyAlignmentToSelection("left"));
+    if (alignLeftBtn)
+      alignLeftBtn.addEventListener("click", () =>
+        this.applyAlignmentToSelection("left")
+      );
     const alignCenterBtn = document.getElementById("alignCenterBtn");
-    if (alignCenterBtn) alignCenterBtn.addEventListener("click", () => this.applyAlignmentToSelection("center"));
+    if (alignCenterBtn)
+      alignCenterBtn.addEventListener("click", () =>
+        this.applyAlignmentToSelection("center")
+      );
     const alignRightBtn = document.getElementById("alignRightBtn");
-    if (alignRightBtn) alignRightBtn.addEventListener("click", () => this.applyAlignmentToSelection("right"));
+    if (alignRightBtn)
+      alignRightBtn.addEventListener("click", () =>
+        this.applyAlignmentToSelection("right")
+      );
   }
 
-  // Pointer event handlers
-  /**
-   * Pointer down event handler
-   * @param evt - The pointer event
-   */
-  private onPointerDown(evt: PointerEvent): void {
-    // Finish editing if a cell is being edited before changing selection
-    if (this.editorInput && this.editingCell) {
-      this.finishEditing(true);
-    }
-    this.columnSelectionAnchor = null;
-    this.columnSelectionFocus = null;
-    this.rowSelectionAnchor = null;
-    this.rowSelectionFocus = null;
-    // Use event offset for header hit-testing so header resize works when scrolled
-    const rect = this.canvas.getBoundingClientRect();
-    const mouseX = evt.clientX - rect.left;
-    const mouseY = evt.clientY - rect.top;
-    if (mouseX >= 0 && mouseX < this.rowHeaderWidth && mouseY >= 0 && mouseY < HEADER_SIZE) {
-      // Select all cells
-      this.selMgr.selectAll();
-      this.scheduleRender();
-      return;
-    }
-    (this.canvas as HTMLElement).setPointerCapture(evt.pointerId);
-    this.onMouseDown(evt);
-  }
-
-  /**
-   * Pointer move event handler
-   * @param evt - The pointer event
-   */
-  private onPointerMove(evt: PointerEvent): void {
-    const rect = this.canvas.getBoundingClientRect();
-    const mouseX = evt.clientX - rect.left;
-    const mouseY = evt.clientY - rect.top;
-    // Check if pointer is over the top-left box
-    const wasHovered = this._isTopLeftHovered;
-    this._isTopLeftHovered = mouseX >= 0 && mouseX < this.rowHeaderWidth && mouseY >= 0 && mouseY < HEADER_SIZE;
-    if (wasHovered !== this._isTopLeftHovered) {
-      this.scheduleRender();
-    }
-    
-    this.onMouseMove(evt);
-  }
-
-  /**
-   * Pointer drag event handler
-   * @param evt - The pointer event
-   */
-  private onPointerDrag(evt: PointerEvent): void {
-    this.onMouseDrag(evt);
-  }
-
-  /**
-   * Pointer up event handler
-   * @param evt - The pointer event
-   */
-  private onPointerUp(evt: PointerEvent): void {
-    (this.canvas as HTMLElement).releasePointerCapture(evt.pointerId);
-    this.onMouseUp();
-  }
 
   /**
    * Undo event handler
@@ -526,9 +498,8 @@ export class Grid {
   public shiftCellsRight(insertAt: number): void {
     // Only process rows that have data
     for (const rowMap of this.cells.values()) {
-      // Find all columns in this row that need to be shifted
+     
       const cols = Array.from(rowMap.keys()).filter((col) => col >= insertAt);
-      // Sort descending so we don't overwrite
       cols.sort((a, b) => b - a);
       for (const col of cols) {
         const cell = rowMap.get(col)!;
@@ -567,7 +538,7 @@ export class Grid {
    * Shift cells left
    * @param deleteAt - The column to delete at
    */
-  public  shiftCellsLeft(deleteAt: number): void {
+  public shiftCellsLeft(deleteAt: number): void {
     for (const rowMap of this.cells.values()) {
       // Remove the deleted column first
       rowMap.delete(deleteAt);
@@ -614,7 +585,15 @@ export class Grid {
         // Composite command for multi-column resize
         const selectedCols = this.selMgr.getSelectedColumns();
         if (selectedCols.length > 1 && selectedCols.includes(col)) {
-          const commands = selectedCols.map(c => new ResizeColumnCommand(this, c, this.colMgr.getWidth(c), this.colMgr.getWidth(c)));
+          const commands = selectedCols.map(
+            (c) =>
+              new ResizeColumnCommand(
+                this,
+                c,
+                this.colMgr.getWidth(c),
+                this.colMgr.getWidth(c)
+              )
+          );
           this.currentResizeCommand = new CompositeCommand(commands);
         } else {
           this.currentResizeCommand = new ResizeColumnCommand(
@@ -625,7 +604,7 @@ export class Grid {
           );
         }
         this.ctx.strokeStyle = "#107C41";
-        this.ctx.lineWidth = 2 / dpr;
+        this.ctx.lineWidth = 2 / window.devicePixelRatio;
         return;
       }
       // --- Multi-column drag selection start ---
@@ -636,7 +615,7 @@ export class Grid {
       // Set anchor and focus for mouse drag
       this.columnSelectionAnchor = colIndex;
       this.columnSelectionFocus = colIndex;
-      this.pendingEditCell = {row: 0, col: colIndex}
+      this.pendingEditCell = { row: 0, col: colIndex };
       this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
       this._colHeaderDragHasDragged = false; // helper flag
       // Clear any existing row selections when starting column selection
@@ -656,7 +635,15 @@ export class Grid {
         // Composite command for multi-row resize
         const selectedRows = this.selMgr.getSelectedRows();
         if (selectedRows.length > 1 && selectedRows.includes(row)) {
-          const commands = selectedRows.map(r => new ResizeRowCommand(this, r, this.rowMgr.getHeight(r), this.rowMgr.getHeight(r)));
+          const commands = selectedRows.map(
+            (r) =>
+              new ResizeRowCommand(
+                this,
+                r,
+                this.rowMgr.getHeight(r),
+                this.rowMgr.getHeight(r)
+              )
+          );
           this.currentResizeCommand = new CompositeCommand(commands);
         } else {
           this.currentResizeCommand = new ResizeRowCommand(
@@ -677,7 +664,7 @@ export class Grid {
       this.rowSelectionFocus = row;
       this.dragStartMouse = { x: evt.clientX, y: evt.clientY };
       this._rowHeaderDragHasDragged = false;
-      this.pendingEditCell = {row: row, col:0}
+      this.pendingEditCell = { row: row, col: 0 };
       // Clear any existing column selections when starting row selection
       this.selMgr.clearSelectedColumns();
       // Do NOT select yet; wait for mouseup or drag
@@ -693,10 +680,10 @@ export class Grid {
         // Clear any existing column/row selections when clicking in data area
         this.selMgr.clearSelectedColumns();
         this.selMgr.clearSelectedRows();
-        
+
         // Select cell immediately
         this.selMgr.selectCell(row, col);
-        this.scrollToCell(row, col);
+        // this.scrollToCell(row, col);
         this.scheduleRender();
         // Prepare for possible drag selection
         this.isMouseDown = true;
@@ -724,6 +711,7 @@ export class Grid {
     const { x, y } = this.getMousePos(evt);
     const { col } = this.findColumnByOffset(x - HEADER_SIZE);
     const { row } = this.findRowByOffset(y - HEADER_SIZE);
+    this.pendingEditCell = { row, col };
     this.startEditingCell(row, col);
   }
 
@@ -783,8 +771,51 @@ export class Grid {
         for (let c = startCol; c <= endCol; c++) {
           selectedCols.push(c);
         }
+        // Auto-scroll horizontally if mouse is near left or right edge during column header drag
+        const edgeThreshold = 25; // px from edge to start auto-scroll
+        const scrollAmount = 40; // px to scroll per event
+
+        const rect = this.canvas.getBoundingClientRect();
+        const mouseX = evt.clientX - rect.left; // relative to canvas
+
+        const clientWidth = this.canvas.clientWidth; // FIX: use width not height
+
+        if (mouseX > clientWidth - edgeThreshold) {
+          // Near right edge → scroll right
+          this.container.scrollLeft = Math.min(
+            this.container.scrollLeft + scrollAmount,
+            this.container.scrollWidth - this.container.clientWidth
+          );
+        } else if (mouseX < edgeThreshold) {
+          // Near left edge → scroll left
+          this.container.scrollLeft = Math.max(
+            this.container.scrollLeft - scrollAmount,
+            0
+          );
+        }
+        const maxScrollLeft =
+          this.container.scrollWidth - this.container.clientWidth;
+        if (
+          mouseX > clientWidth - edgeThreshold &&
+          this.container.scrollLeft < maxScrollLeft
+        ) {
+          this.container.scrollLeft = Math.min(
+            this.container.scrollLeft + scrollAmount,
+            maxScrollLeft
+          );
+        } else if (mouseX < edgeThreshold && this.container.scrollLeft > 0) {
+          this.container.scrollLeft = Math.max(
+            this.container.scrollLeft - scrollAmount,
+            0
+          );
+        }
+
+        // // Scroll to the last visible column in the drag range
+        // const lastVisibleCol = Math.max(startCol, endCol);
+        // this.scrollToCell(0, lastVisibleCol);
         this.selMgr.setSelectedColumns(selectedCols);
-        this.throttledScheduleRender();
+        //this.throttledScheduleRender();
+        this.scheduleRender();
       }
       return;
     }
@@ -814,8 +845,25 @@ export class Grid {
         for (let r = startRow; r <= endRow; r++) {
           selectedRows.push(r);
         }
+        const edgeThreshold = 25; // px from edge to start auto-scroll
+        const scrollAmount = 10; // px to scroll per event
+        const rect = this.canvas.getBoundingClientRect();
+        const mouseY = evt.clientY - rect.top;
+        const clientHeight = this.canvas.clientHeight;
+        if (mouseY > clientHeight - edgeThreshold) {
+          this.container.scrollTop = Math.min(
+            this.container.scrollTop + scrollAmount,
+            this.container.scrollHeight - this.container.clientHeight
+          );
+        } else if (mouseY < edgeThreshold) {
+          this.container.scrollTop = Math.max(
+            this.container.scrollTop - scrollAmount,
+            0
+          );
+        }
         this.selMgr.setSelectedRows(selectedRows);
-        this.throttledScheduleRender();
+        this.scheduleRender();
+        //this.throttledScheduleRender();
       }
       return;
     }
@@ -842,13 +890,15 @@ export class Grid {
         const { col } = this.findColumnByOffset(x - HEADER_SIZE);
         const { row } = this.findRowByOffset(y - HEADER_SIZE);
         this.selMgr.updateDrag(row, col);
-       
-    
+
         this.scrollToCell(row, col);
-        this.throttledScheduleRender();
+        this.scheduleRender();
+        //this.throttledScheduleRender();
       }
     }
   }
+
+
 
   /**
    * Mouse drag event handler
@@ -865,12 +915,19 @@ export class Grid {
       const newW = Math.max(40, this.originalSize + dx);
       // If multiple columns are selected, resize all
       const selectedCols = this.selMgr.getSelectedColumns();
-      if (selectedCols.length > 1 && selectedCols.includes(this.resizingCol) && this.currentResizeCommand instanceof CompositeCommand) {
+      if (
+        selectedCols.length > 1 &&
+        selectedCols.includes(this.resizingCol) &&
+        this.currentResizeCommand instanceof CompositeCommand
+      ) {
         // Update all commands in the composite
         for (let i = 0; i < selectedCols.length; i++) {
           this.colMgr.setWidth(selectedCols[i], newW);
           const cmd = this.currentResizeCommand.commands[i];
-          if ('updateNewSize' in cmd && typeof cmd.updateNewSize === 'function') {
+          if (
+            "updateNewSize" in cmd &&
+            typeof cmd.updateNewSize === "function"
+          ) {
             cmd.updateNewSize(newW);
           }
         }
@@ -879,7 +936,8 @@ export class Grid {
         this.currentResizeCommand.updateNewSize(newW);
       }
       this.updateEditorPosition();
-      this.throttledScheduleRender();
+      //this.throttledScheduleRender();
+      this.scheduleRender();
     }
     /* Row resize */
     if (
@@ -890,11 +948,18 @@ export class Grid {
       const dy = evt.clientY - this.dragStartY;
       const newH = Math.max(20, this.originalSize + dy);
       const selectedRows = this.selMgr.getSelectedRows();
-      if (selectedRows.length > 1 && selectedRows.includes(this.resizingRow) && this.currentResizeCommand instanceof CompositeCommand) {
+      if (
+        selectedRows.length > 1 &&
+        selectedRows.includes(this.resizingRow) &&
+        this.currentResizeCommand instanceof CompositeCommand
+      ) {
         for (let i = 0; i < selectedRows.length; i++) {
           this.rowMgr.setHeight(selectedRows[i], newH);
           const cmd = this.currentResizeCommand.commands[i];
-          if ('updateNewSize' in cmd && typeof cmd.updateNewSize === 'function') {
+          if (
+            "updateNewSize" in cmd &&
+            typeof cmd.updateNewSize === "function"
+          ) {
             cmd.updateNewSize(newH);
           }
         }
@@ -903,7 +968,8 @@ export class Grid {
         this.currentResizeCommand.updateNewSize(newH);
       }
       this.updateEditorPosition();
-      this.throttledScheduleRender();
+      //this.throttledScheduleRender();
+      this.scheduleRender();
     }
   }
 
@@ -980,7 +1046,6 @@ export class Grid {
       this.selMgr.endDrag();
       this.scheduleRender();
       // If a drag rectangle exists and covers more than one cell, set pendingEditCell
-      
 
       // Only update toolbar and stats once, here
       this.computeSelectionStats();
@@ -999,37 +1064,65 @@ export class Grid {
   private onKeyDown(e: KeyboardEvent): void {
     // Prevent grid key handling if an input, textarea, or contenteditable is focused
     const target = e.target as HTMLElement;
-    if (target && (
-      target.tagName === "INPUT" ||
-      target.tagName === "TEXTAREA" ||
-      target.getAttribute("contenteditable") === "true"
-    )) {
+    if (
+      target &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.getAttribute("contenteditable") === "true")
+    ) {
       return;
     }
     // Only handle navigation if not editing a cell
     if (e.ctrlKey && e.key === "c") {
-      // Copy selected cells to clipboard
-      const selectedCells = this.getSelectedCells();
-      if (selectedCells.length > 0) {
-        // Find bounds
-        const minRow = Math.min(...selectedCells.map(cell => cell.row));
-        const minCol = Math.min(...selectedCells.map(cell => cell.col));
-        const maxRow = Math.max(...selectedCells.map(cell => cell.row));
-        const maxCol = Math.max(...selectedCells.map(cell => cell.col));
-        this.drawMarchingAnts(minRow, minCol, maxRow, maxCol)
-        this.startMarchingAntsAnimation()
+      // Copy selected cells to clipboard (even if empty)
+      const dragRect = this.selMgr.getDragRect && this.selMgr.getDragRect();
+      if (dragRect) {
+        this.copyRange = {
+          startRow: dragRect.startRow,
+          startCol: dragRect.startCol,
+          endRow: dragRect.endRow,
+          endCol: dragRect.endCol,
+        };
+        this.startMarchingAntsAnimation();
         const clipboardData: string[][] = [];
-        for (let r = minRow; r <= maxRow; r++) {
+        for (let r = dragRect.startRow; r <= dragRect.endRow; r++) {
           const row: string[] = [];
-          for (let c = minCol; c <= maxCol; c++) {
+          for (let c = dragRect.startCol; c <= dragRect.endCol; c++) {
             const cell = this.getCellIfExists(r, c);
             row.push(cell ? cell.getValue() : "");
           }
           clipboardData.push(row);
         }
         this.clipboard = clipboardData;
-        this.formulaRange = { startRow: minRow, startCol: minCol, endRow: maxRow, endCol: maxCol };
+        this.formulaRange = null;
+      } else {
+        const selectedCells = this.getSelectedCells();
+        if (selectedCells.length > 0) {
+          const minRow = Math.min(...selectedCells.map((cell) => cell.row));
+          const minCol = Math.min(...selectedCells.map((cell) => cell.col));
+          const maxRow = Math.max(...selectedCells.map((cell) => cell.row));
+          const maxCol = Math.max(...selectedCells.map((cell) => cell.col));
+          this.copyRange = {
+            startRow: minRow,
+            startCol: minCol,
+            endRow: maxRow,
+            endCol: maxCol,
+          };
+          this.startMarchingAntsAnimation();
+          const clipboardData: string[][] = [];
+          for (let r = minRow; r <= maxRow; r++) {
+            const row: string[] = [];
+            for (let c = minCol; c <= maxCol; c++) {
+              const cell = this.getCellIfExists(r, c);
+              row.push(cell ? cell.getValue() : "");
+            }
+            clipboardData.push(row);
+          }
+          this.clipboard = clipboardData;
+          this.formulaRange = null;
+        }
       }
+      this.scheduleRender();
       return;
     }
     if (e.ctrlKey && e.key === "v") {
@@ -1042,12 +1135,24 @@ export class Grid {
       clipboardManager.setData(this.clipboard);
       const command = new PasteCommand(row, col, this, clipboardManager);
       this.commandManager.execute(command);
-      this.stopMarchingAntsAnimation()
+      // Show blue marching ants for paste
+      // this.pasteRange = {
+      //   startRow: row,
+      //   startCol: col,
+      //   endRow: row + this.clipboard.length - 1,
+      //   endCol: col + (this.clipboard[0]?.length || 1) - 1
+      // };
+      this.copyRange = null; // Clear copy ants
       this.formulaRange = null;
+      this.startMarchingAntsAnimation();
       this.scheduleRender();
       return;
     }
-    if (e.ctrlKey && e.shiftKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    if (
+      e.ctrlKey &&
+      e.shiftKey &&
+      (e.key === "ArrowDown" || e.key === "ArrowUp")
+    ) {
       const selected = this.selMgr.getSelectedCell();
       if (!selected) return;
       const { row, col } = selected;
@@ -1075,9 +1180,41 @@ export class Grid {
       this.scheduleRender();
       return;
     }
+     if (
+      e.ctrlKey &&
+      e.shiftKey &&
+      (e.key === "ArrowLeft" || e.key === "ArrowRight")
+    ) {
+      const selected = this.selMgr.getSelectedCell();
+      if (!selected) return;
+      const { row, col } = selected;
+      let targetCol = col;
+      if (e.key === "ArrowRight") {
+        for (let c = col + 1; c < COLS; c++) {
+          if (this.getCellValueIfExists(row, c) !== "") {
+            targetCol = c;
+            break;
+          }
+        }
+        if (targetCol === col) targetCol = COLS - 1; // No data found, go to last row
+      } else if (e.key === "ArrowLeft") {
+        for (let c = col - 1; c >= 0; c--) {
+          if (this.getCellValueIfExists(row, c) !== "") {
+            targetCol = c;
+            break;
+          }
+        }
+        if (targetCol === col) targetCol = 0; // No data found, go to first row
+      }
+      this.selMgr.clearSelection();
+      this.selMgr.selectCell(row, targetCol);
+      this.scrollToCell(row, targetCol);
+      this.scheduleRender();
+      return;
+    }
     if (this.editingCell) return;
     //if any key is pressed while cell is seleted start editing but stop on enter or escape and support ctrl +z and ctrl +y
- 
+
     // For row selection
     const selectedRow = this.selMgr.getSelectedRow();
     if (typeof selectedRow === "number") {
@@ -1086,15 +1223,17 @@ export class Grid {
           // Use the first/last of the selected range as anchor if available
 
           const selRows = this.selMgr.getSelectedRows();
-          this.rowSelectionAnchor = selRows.length > 0 ? selRows[0] : selectedRow;
+          this.rowSelectionAnchor =
+            selRows.length > 0 ? selRows[0] : selectedRow;
         }
         if (this.rowSelectionFocus === null) {
           // Use the last of the selected range as focus if available
           const selRows = this.selMgr.getSelectedRows();
-          this.rowSelectionFocus = selRows.length > 0 ? selRows[selRows.length - 1] : selectedRow;
+          this.rowSelectionFocus =
+            selRows.length > 0 ? selRows[selRows.length - 1] : selectedRow;
         }
         let anchor = this.rowSelectionAnchor;
-        this.pendingEditCell = {row: this.rowSelectionAnchor, col:0}
+        this.pendingEditCell = { row: this.rowSelectionAnchor, col: 0 };
         let focus = this.rowSelectionFocus;
         if (e.key === "ArrowDown" && focus < ROWS - 1) {
           focus = focus + 1;
@@ -1121,15 +1260,17 @@ export class Grid {
         if (this.columnSelectionAnchor === null) {
           // Use the first/last of the selected range as anchor if available
           const selCols = this.selMgr.getSelectedColumns();
-          this.columnSelectionAnchor = selCols.length > 0 ? selCols[0] : selectedCol;
+          this.columnSelectionAnchor =
+            selCols.length > 0 ? selCols[0] : selectedCol;
         }
         if (this.columnSelectionFocus === null) {
           // Use the last of the selected range as focus if available
           const selCols = this.selMgr.getSelectedColumns();
-          this.columnSelectionFocus = selCols.length > 0 ? selCols[selCols.length - 1] : selectedCol;
+          this.columnSelectionFocus =
+            selCols.length > 0 ? selCols[selCols.length - 1] : selectedCol;
         }
         let anchor = this.columnSelectionAnchor;
-        this.pendingEditCell = {row:0, col:this.columnSelectionAnchor}
+        this.pendingEditCell = { row: 0, col: this.columnSelectionAnchor };
         let focus = this.columnSelectionFocus;
         if (e.key === "ArrowRight" && focus < COLS - 1) {
           focus = focus + 1;
@@ -1148,7 +1289,7 @@ export class Grid {
         this.computeSelectionStats();
         this.updateToolbarState();
         return;
-      } 
+      }
     } else {
       // If no column/row is selected, reset anchor/focus
       this.columnSelectionAnchor = null;
@@ -1181,14 +1322,14 @@ export class Grid {
       // Determine new focus cell
       let focusRow =
         this.selMgr.isDragging() &&
-          this.selMgr["dragEnd"] &&
-          typeof this.selMgr["dragEnd"].row === "number"
+        this.selMgr["dragEnd"] &&
+        typeof this.selMgr["dragEnd"].row === "number"
           ? this.selMgr["dragEnd"].row
           : anchorRow;
       let focusCol =
         this.selMgr.isDragging() &&
-          this.selMgr["dragEnd"] &&
-          typeof this.selMgr["dragEnd"].col === "number"
+        this.selMgr["dragEnd"] &&
+        typeof this.selMgr["dragEnd"].col === "number"
           ? this.selMgr["dragEnd"].col
           : anchorCol;
       // Ensure focusRow and focusCol are numbers
@@ -1211,8 +1352,7 @@ export class Grid {
       if (e.shiftKey) {
         if (!this.selMgr.isDragging()) {
           this.selMgr.startDrag(anchorRow, anchorCol);
-          this.pendingEditCell = {row: anchorRow, col: anchorCol}
-         
+          this.pendingEditCell = { row: anchorRow, col: anchorCol };
         }
         this.selMgr.updateDrag(focusRow, focusCol);
         this.scrollToCell(focusRow, focusCol);
@@ -1296,15 +1436,15 @@ export class Grid {
       !e.ctrlKey &&
       !e.metaKey &&
       !e.altKey &&
-      (!active || (
-        active.tagName !== "INPUT" &&
-        active.tagName !== "TEXTAREA" &&
-        active.getAttribute("contenteditable") !== "true"
-      ))
+      (!active ||
+        (active.tagName !== "INPUT" &&
+          active.tagName !== "TEXTAREA" &&
+          active.getAttribute("contenteditable") !== "true"))
     ) {
       e.preventDefault();
-      this.isKeyDown = false;
+
       const selectedCell = this.selMgr.getSelectedCell()!;
+      this.pendingEditCell = { row: selectedCell.row, col: selectedCell.col };
       this.startEditingCell(selectedCell.row, selectedCell.col, e.key);
       return;
     }
@@ -1314,11 +1454,10 @@ export class Grid {
       !e.ctrlKey &&
       !e.metaKey &&
       !e.altKey &&
-      (!target || (
-        target.tagName !== "INPUT" &&
-        target.tagName !== "TEXTAREA" &&
-        target.getAttribute("contenteditable") !== "true"
-      ))
+      (!target ||
+        (target.tagName !== "INPUT" &&
+          target.tagName !== "TEXTAREA" &&
+          target.getAttribute("contenteditable") !== "true"))
     ) {
       e.preventDefault();
       const { row, col } = this.pendingEditCell;
@@ -1332,7 +1471,10 @@ export class Grid {
     if (this.editingCell && e.key === "Enter") {
       // If a drag selection exists and is more than one cell
       const rect = this.selMgr.getDragRect();
-      if (rect && (rect.endRow > rect.startRow || rect.endCol > rect.startCol)) {
+      if (
+        rect &&
+        (rect.endRow > rect.startRow || rect.endCol > rect.startCol)
+      ) {
         const { row, col } = this.editingCell;
         let nextRow = row + 1;
         // If at the bottom, wrap to the top
@@ -1356,21 +1498,23 @@ export class Grid {
       return;
     }
     // Only handle navigation if not editing a cell
-    
   }
-
 
   /**
    * Start editing a cell
    * @param row - The row of the cell
    * @param col - The column of the cell
    */
-  private startEditingCell(row: number, col: number, initialValue?: string): void {
+  private startEditingCell(
+    row: number,
+    col: number,
+    initialValue?: string
+  ): void {
     const cell = this.getCell(row, col); // Creates only once
     this.editingCellInstance = cell;
 
     if (!this.editorInput) this.createEditorInput();
-    
+
     // Check if cell has a formula (either in value or formula property)
     const cellValue = cell.getValue();
     if (cellValue.startsWith("=") || cell.hasFormula()) {
@@ -1383,7 +1527,7 @@ export class Grid {
 
     this.pendingEditCell = null;
     this.editingCell = { row, col };
-    
+
     // Always show the formula if the cell has one, otherwise show the value
     if (typeof initialValue === "string") {
       this.editorInput!.value = initialValue;
@@ -1392,17 +1536,20 @@ export class Grid {
     } else {
       this.editorInput!.value = cell.getValue();
     }
-    
+
     this.updateEditorPosition();
     this.editorInput!.focus();
     // Move cursor to end for normal edit, or after first char for initialValue
     if (typeof initialValue === "string") {
-      this.editorInput!.setSelectionRange(initialValue.length, initialValue.length);
+      this.editorInput!.setSelectionRange(
+        initialValue.length,
+        initialValue.length
+      );
     }
   }
-/**
- * Creates an input element 
- */
+  /**
+   * Creates an input element
+   */
   private createEditorInput(): void {
     this.editorInput = document.createElement("input");
     this.editorInput.className = "cell-editor";
@@ -1433,8 +1580,9 @@ export class Grid {
       ) {
         e.preventDefault();
         if (this.editingCell) {
-          const { row, col } = this.editingCell
-          let nextRow = row, nextCol = col;
+          const { row, col } = this.editingCell;
+          let nextRow = row,
+            nextCol = col;
           if (e.key === "ArrowDown" && row < ROWS - 1) nextRow++;
           if (e.key === "ArrowUp" && row > 0) nextRow--;
           if (e.key === "ArrowLeft" && col > 0) nextCol--;
@@ -1445,12 +1593,12 @@ export class Grid {
         }
       }
     });
-    
+
     // Add real-time formula range detection
     this.editorInput.addEventListener("input", (e) => {
       const target = e.target as HTMLInputElement;
       const value = target.value;
-      
+
       if (value.startsWith("=")) {
         try {
           this.formulaRange = this.extractRangeFromFormula(value);
@@ -1480,10 +1628,17 @@ export class Grid {
    * @param formula - The formula to extract the range from
    * @returns The range of the formula
    */
-  private extractRangeFromFormula(formula: string): { startRow: number, startCol: number, endRow: number, endCol: number } | null {
+  private extractRangeFromFormula(formula: string): {
+    startRow: number;
+    startCol: number;
+    endRow: number;
+    endCol: number;
+  } | null {
     // Remove the = sign if present
-    const cleanFormula = formula.startsWith("=") ? formula.substring(1) : formula;
-    
+    const cleanFormula = formula.startsWith("=")
+      ? formula.substring(1)
+      : formula;
+
     // Match single cell reference like A1, B5, etc.
     const singleCellMatch = cleanFormula.match(/^([A-Z]+[0-9]+)$/i);
     if (singleCellMatch) {
@@ -1491,16 +1646,18 @@ export class Grid {
       const { row, col } = getCoordinates(cellRef);
       return { startRow: row, startCol: col, endRow: row, endCol: col };
     }
-    
+
     // Match function with range like SUM(A1:B5), COUNT(A1:A10), etc.
-    const functionMatch = cleanFormula.match(/^\w+\(([A-Z]+[0-9]+):([A-Z]+[0-9]+)\)$/i);
+    const functionMatch = cleanFormula.match(
+      /^\w+\(([A-Z]+[0-9]+):([A-Z]+[0-9]+)\)$/i
+    );
     if (functionMatch) {
       const [, start, end] = functionMatch;
       const { row: startRow, col: startCol } = getCoordinates(start);
       const { row: endRow, col: endCol } = getCoordinates(end);
       return { startRow, startCol, endRow, endCol };
     }
-    
+
     // If no valid pattern found, return null
     return null;
   }
@@ -1532,17 +1689,20 @@ export class Grid {
       // Select the first match
       const firstMatch = searchResults[0];
       this.selMgr.selectCell(firstMatch.row, firstMatch.col);
-      
+
       // Store search results for navigation
       this.currentSearchResults = searchResults;
       this.currentSearchIndex = 0;
-      
+
       // Update search status
-      this.updateSearchStatus(searchResults.length, this.currentSearchIndex + 1);
-      
+      this.updateSearchStatus(
+        searchResults.length,
+        this.currentSearchIndex + 1
+      );
+
       // Scroll to the selected cell
       this.scrollToCell(firstMatch.row, firstMatch.col);
-      
+
       this.scheduleRender();
     } else {
       // No matches found
@@ -1551,8 +1711,9 @@ export class Grid {
       this.scheduleRender();
     }
   }
-  
-  private currentSearchResults: { row: number; col: number; value: string }[] = [];
+
+  private currentSearchResults: { row: number; col: number; value: string }[] =
+    [];
   private currentSearchIndex: number = 0;
 
   /**
@@ -1570,21 +1731,26 @@ export class Grid {
    * Navigates through the search results
    * @param direction - The direction to navigate
    */
-  private navigateSearchResults(direction: 'next' | 'prev'): void {
+  private navigateSearchResults(direction: "next" | "prev"): void {
     if (this.currentSearchResults.length === 0) return;
 
-    if (direction === 'next') {
-      this.currentSearchIndex = (this.currentSearchIndex + 1) % this.currentSearchResults.length;
+    if (direction === "next") {
+      this.currentSearchIndex =
+        (this.currentSearchIndex + 1) % this.currentSearchResults.length;
     } else {
-      this.currentSearchIndex = this.currentSearchIndex === 0
-        ? this.currentSearchResults.length - 1
-        : this.currentSearchIndex - 1;
+      this.currentSearchIndex =
+        this.currentSearchIndex === 0
+          ? this.currentSearchResults.length - 1
+          : this.currentSearchIndex - 1;
     }
 
     const match = this.currentSearchResults[this.currentSearchIndex];
     this.selMgr.selectCell(match.row, match.col);
     this.scrollToCell(match.row, match.col);
-    this.updateSearchStatus(this.currentSearchResults.length, this.currentSearchIndex + 1);
+    this.updateSearchStatus(
+      this.currentSearchResults.length,
+      this.currentSearchIndex + 1
+    );
     this.scheduleRender();
   }
   /**
@@ -1638,15 +1804,24 @@ export class Grid {
     }
 
     // Ensure scroll position is within bounds
-    targetScrollX = Math.max(0, Math.min(targetScrollX, this.colMgr.getTotalWidth() - visibleWidth));
-    targetScrollY = Math.max(0, Math.min(targetScrollY, this.rowMgr.getTotalHeight() - visibleHeight));
+    targetScrollX = Math.max(
+      0,
+      Math.min(targetScrollX, this.colMgr.getTotalWidth() - visibleWidth)
+    );
+    targetScrollY = Math.max(
+      0,
+      Math.min(targetScrollY, this.rowMgr.getTotalHeight() - visibleHeight)
+    );
 
     // Only scroll if the position actually changed
-    if (targetScrollX !== this.container.scrollLeft || targetScrollY !== this.container.scrollTop) {
+    if (
+      targetScrollX !== this.container.scrollLeft ||
+      targetScrollY !== this.container.scrollTop
+    ) {
       this.container.scrollTo({
         left: targetScrollX,
         top: targetScrollY,
-        behavior: 'instant'
+        behavior: "auto",
       });
     }
   }
@@ -1657,18 +1832,18 @@ export class Grid {
    * @param currentMatch - The current match
    */
   private updateSearchStatus(totalMatches: number, currentMatch: number): void {
-    const searchStatus = document.getElementById('searchStatus');
+    const searchStatus = document.getElementById("searchStatus");
     if (searchStatus) {
       if (totalMatches === 0) {
-        searchStatus.textContent = 'No matches found';
-        searchStatus.style.color = '#d32f2f';
+        searchStatus.textContent = "No matches found";
+        searchStatus.style.color = "#d32f2f";
       } else {
         searchStatus.textContent = `${currentMatch} of ${totalMatches} matches`;
-        searchStatus.style.color = '#1976d2';
+        searchStatus.style.color = "#1976d2";
       }
     }
   }
-  
+
   /**
    * Draws the marching ants
    * @param startRow - The start row
@@ -1676,19 +1851,46 @@ export class Grid {
    * @param endRow - The end row
    * @param endCol - The end column
    */
-  public drawMarchingAnts(startRow: number, startCol: number, endRow: number, endCol: number): void {
+  public drawMarchingAnts(
+    startRow: number,
+    startCol: number,
+    endRow: number,
+    endCol: number,
+    color: string = "#217346"
+  ): void {
+    // Always draw the rectangle for the full range, regardless of cell data
     const ctx = this.canvas.getContext("2d")!;
-    const x1 = this.rowHeaderWidth + this.colMgr.getX(startCol) - this.container.scrollLeft;
-    const y1 = HEADER_SIZE + this.rowMgr.getY(startRow) - this.container.scrollTop;
-    const x2 = this.rowHeaderWidth + this.colMgr.getX(endCol) + this.colMgr.getWidth(endCol) - this.container.scrollLeft;
-    const y2 = HEADER_SIZE + this.rowMgr.getY(endRow) + this.rowMgr.getHeight(endRow) - this.container.scrollTop;
-  
+    const x1 =
+      this.rowHeaderWidth +
+      this.colMgr.getX(startCol) -
+      this.container.scrollLeft;
+    const y1 =
+      HEADER_SIZE + this.rowMgr.getY(startRow) - this.container.scrollTop;
+    const x2 =
+      this.rowHeaderWidth +
+      this.colMgr.getX(endCol) +
+      this.colMgr.getWidth(endCol) -
+      this.container.scrollLeft;
+    const y2 =
+      HEADER_SIZE +
+      this.rowMgr.getY(endRow) +
+      this.rowMgr.getHeight(endRow) -
+      this.container.scrollTop;
+
     ctx.save();
-    ctx.setLineDash([3, 2]); // Dash pattern
+    ctx.lineWidth = 3 / dpr;
+    ctx.setLineDash([3, 3]);
+
+    // First stroke: white (this becomes the gaps for the second stroke)
+    ctx.strokeStyle = "white";
     ctx.lineDashOffset = this.dashOffset;
-    ctx.strokeStyle = "#217346";
-    ctx.lineWidth = 4 / dpr;
-    ctx.strokeRect(x1-0.5, y1-0.5, x2 - x1+1, y2 - y1+1);
+    ctx.strokeRect(x1 + 0.5, y1 + 0.5, x2 - x1, y2 - y1);
+
+    // Second stroke: black (dashes appear between the white gaps)
+    ctx.strokeStyle = "#107C41";
+    ctx.lineDashOffset = this.dashOffset + 3; // half cycle shift
+    ctx.strokeRect(x1 + 0.5, y1 + 0.5, x2 - x1, y2 - y1);
+
     ctx.restore();
   }
 
@@ -1704,12 +1906,23 @@ export class Grid {
 
     // Get header and toolbar heights from CSS variables (parse as float, trim spaces)
     const root = document.documentElement;
-    const headerHeight = parseFloat(getComputedStyle(root).getPropertyValue('--header-height').trim()) || 56;
-    const toolbarHeight = parseFloat(getComputedStyle(root).getPropertyValue('--toolbar-height').trim()) || 48;
+    const headerHeight =
+      parseFloat(
+        getComputedStyle(root).getPropertyValue("--header-height").trim()
+      ) || 56;
+    const toolbarHeight =
+      parseFloat(
+        getComputedStyle(root).getPropertyValue("--toolbar-height").trim()
+      ) || 48;
 
     // Add HEADER_SIZE for the grid's own header row
     const left = this.rowHeaderWidth + this.colMgr.getX(col) - scrollX;
-    const top = headerHeight + toolbarHeight + HEADER_SIZE + this.rowMgr.getY(row) - scrollY;
+    const top =
+      headerHeight +
+      toolbarHeight +
+      HEADER_SIZE +
+      this.rowMgr.getY(row) -
+      scrollY;
 
     // Determine padding based on cell value (numeric = right-aligned)
     let paddingLeft = "8px";
@@ -1727,9 +1940,9 @@ export class Grid {
 
     Object.assign(this.editorInput.style, {
       left: `${left + 1}px`,
-      top: `${top+1}px`,
+      top: `${top + 1}px`,
       width: `${this.colMgr.getWidth(col) - 3}px`,
-      height: `${this.rowMgr.getHeight(row)-2}px`,
+      height: `${this.rowMgr.getHeight(row) - 2}px`,
       zIndex: "8",
       display: "block",
       paddingLeft,
@@ -1739,11 +1952,7 @@ export class Grid {
       lineHeight: "16px", // match font size or desired line height
       verticalAlign: "bottom", // optional, does nothing here
     });
-    
- 
   }
-
-  
 
   /**
    * Finishes editing a cell
@@ -1805,8 +2014,6 @@ export class Grid {
       this.startEditingCell(selectedCell.row, selectedCell.col);
       return;
     }
-
-
 
     this.editorInput.style.display = "none";
     this.editingCell = null;
@@ -1968,13 +2175,13 @@ export class Grid {
     this.ctx.restore();
 
     const { firstRow, lastRow, firstCol, lastCol } = this.getVisibleRange();
-    
+
     // Draw marching ants for formula range if active
     if (this.formulaRange) {
       const { startRow, startCol, endRow, endCol } = this.formulaRange;
       this.drawMarchingAnts(startRow, startCol, endRow, endCol);
     }
-    
+
     // Draw cells (only grid lines, not filled rectangles)
     let yPos = HEADER_SIZE + this.rowMgr.getY(firstRow) - scrollY;
     for (let r = firstRow; r <= lastRow; r++) {
@@ -1983,20 +2190,24 @@ export class Grid {
       const rowMap = this.cells.get(r);
       for (let c = firstCol; c <= lastCol; c++) {
         const colW = this.colMgr.getWidth(c);
-        
+
         // Draw search highlight if this cell is a search result
         if (this.isSearchResult(r, c)) {
           this.ctx.fillStyle = "rgba(34, 168, 0, 0.12)";
           this.ctx.fillRect(xPos, yPos, colW, rowH);
         }
-        
+
         // Draw cell text
         const cell = rowMap?.get(c);
         const cellValue = rowMap?.get(c)?.getValue() || "";
         const isNumeric = this.isNumericValue(cellValue);
         let effectiveAlignment: "left" | "center" | "right";
         const alignment = cell?.getAlignment();
-        if (alignment === "left" || alignment === "center" || alignment === "right") {
+        if (
+          alignment === "left" ||
+          alignment === "center" ||
+          alignment === "right"
+        ) {
           effectiveAlignment = alignment;
         } else if (isNumeric) {
           effectiveAlignment = "right";
@@ -2033,7 +2244,7 @@ export class Grid {
       }
       yPos += rowH;
     }
-    
+
     // Draw vertical grid lines
     let gridX = this.rowHeaderWidth + this.colMgr.getX(firstCol) - scrollX;
     for (let c = firstCol; c <= lastCol + 1; c++) {
@@ -2045,7 +2256,7 @@ export class Grid {
       this.ctx.stroke();
       if (c <= lastCol) gridX += this.colMgr.getWidth(c);
     }
-    
+
     // Draw horizontal grid lines
     let gridY = HEADER_SIZE + this.rowMgr.getY(firstRow) - scrollY;
     for (let r = firstRow; r <= lastRow + 1; r++) {
@@ -2057,7 +2268,7 @@ export class Grid {
       this.ctx.stroke();
       if (r <= lastRow) gridY += this.rowMgr.getHeight(r);
     }
-    
+
     // Draw selection overlay BEFORE headers so headers cover selection
     this.selMgr.drawSelection(
       this.ctx,
@@ -2068,21 +2279,8 @@ export class Grid {
       scrollX,
       scrollY
     );
-    
-    // Draw headers LAST so they are on top
-    let x = this.rowHeaderWidth + this.colMgr.getX(firstCol) - scrollX;
-    for (let c = firstCol; c <= lastCol; c++) {
-      const w = this.colMgr.getWidth(c);
-      this.drawHeader(c, true, x, w);
-      x += w;
-    }
-    let y = HEADER_SIZE + this.rowMgr.getY(firstRow) - scrollY;
 
-    for (let r = firstRow; r <= lastRow; r++) {
-      const h = this.rowMgr.getHeight(r);
-      this.drawHeader(r, false, y, h);
-      y += h;
-    }
+    // Draw headers LAST so they are on top
 
     // Highlight pendingEditCell (soft focus, no border)
     if (this.pendingEditCell) {
@@ -2093,7 +2291,7 @@ export class Grid {
       const h = this.rowMgr.getHeight(row);
       this.ctx.save();
       this.ctx.fillStyle = "#fff";
-      this.ctx.fillRect(x+1, y+1, w-2, h-2);
+      this.ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
       // Draw the cell text again so it's visible on white
       const cell = this.getCellIfExists(row, col);
       if (cell) {
@@ -2129,7 +2327,7 @@ export class Grid {
       }
       this.ctx.restore();
     }
-  
+
     // Draw a green border around the cell being edited ONLY if the editor input is visible
     // if (this.editingCell && this.editorInput && this.editorInput.style.opacity !== '0' && document.activeElement === this.editorInput) {
     //   const { row, col } = this.editingCell;
@@ -2144,11 +2342,53 @@ export class Grid {
     //   this.ctx.restore();
     // }
     // At the end of render(), always reset isKeyDown to false
-    this.isKeyDown = false;
+
+    let x = this.rowHeaderWidth + this.colMgr.getX(firstCol) - scrollX;
+    for (let c = firstCol; c <= lastCol; c++) {
+      const w = this.colMgr.getWidth(c);
+      this.drawHeader(c, true, x, w);
+      x += w;
+    }
+    let y = HEADER_SIZE + this.rowMgr.getY(firstRow) - scrollY;
+
+    for (let r = firstRow; r <= lastRow; r++) {
+      const h = this.rowMgr.getHeight(r);
+      this.drawHeader(r, false, y, h);
+      y += h;
+    }
+
+    // Draw marching ants and border for copy only
+    if (this.copyRange) {
+      // Draw solid border around the whole selected area
+      //this.drawCopyBorder(this.copyRange.startRow, this.copyRange.startCol, this.copyRange.endRow, this.copyRange.endCol, "#217346");
+      // Draw marching ants
+      this.drawMarchingAnts(
+        this.copyRange.startRow,
+        this.copyRange.startCol,
+        this.copyRange.endRow,
+        this.copyRange.endCol,
+        "#217346"
+      ); // green
+    }
+    if (this.formulaRange) {
+      this.drawMarchingAnts(
+        this.formulaRange.startRow,
+        this.formulaRange.startCol,
+        this.formulaRange.endRow,
+        this.formulaRange.endCol,
+        "#217346"
+      ); // green
+    }
+    // Remove paste marching ants
+    // if (this.pasteRange) {
+    //   this.drawMarchingAnts(this.pasteRange.startRow, this.pasteRange.startCol, this.pasteRange.endRow, this.pasteRange.endCol, "#1976d2"); // blue
+    // }
   }
 
   private isSearchResult(row: number, col: number): boolean {
-    return this.currentSearchResults.some(result => result.row === row && result.col === col);
+    return this.currentSearchResults.some(
+      (result) => result.row === row && result.col === col
+    );
   }
 
   /**
@@ -2175,7 +2415,9 @@ export class Grid {
    */
   private isNumericValue(value: string): boolean {
     const cleanValue = value.trim();
-    return /^\d+$|^\d+\.\d+$|^\d+%$/.test(cleanValue);
+    return /^\d+$|^\d+\.\d+$|^\d+%$|^(\d{1,3}(,\d{3})+|\d+)(\.\d+)?%?$/.test(
+      cleanValue
+    );
   }
 
   /* ────────── Batch‑update helpers (programmatic edits) ───────────── */
@@ -2227,12 +2469,13 @@ export class Grid {
       const desiredWidth = ctx.measureText(label).width + 16;
       const defaultWidth = 40;
       const targetWidth = Math.max(desiredWidth, defaultWidth);
-      // Use a simple lerp for smooth transition
-      const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-      // Animate with a factor (0.2 for smoothness)
-      this.rowHeaderWidth = lerp(this.rowHeaderWidth, targetWidth, 0.2);
-      // Clamp to integer for pixel alignment
-      this.rowHeaderWidth = Math.round(this.rowHeaderWidth);
+      const step = 5; // change this to control speed
+
+      if (this.rowHeaderWidth < targetWidth) {
+        this.rowHeaderWidth = Math.min(this.rowHeaderWidth + step, targetWidth);
+      } else if (this.rowHeaderWidth > targetWidth) {
+        this.rowHeaderWidth = Math.max(this.rowHeaderWidth - step, targetWidth);
+      }
     }
 
     const x = isColumn ? pos : 0;
@@ -2271,29 +2514,41 @@ export class Grid {
     }
     if (
       (isColumn && selectedCol === index) ||
-      (!isColumn && selectedRow === index)) {
+      (!isColumn && selectedRow === index)
+    ) {
       highlight = true;
     }
-    if (isColumn && selectedRow !== null || (!isColumn && this.selMgr.getSelectedColumns().length > 0)) {
+    if (
+      (isColumn && selectedRow !== null) ||
+      (!isColumn && this.selMgr.getSelectedColumns().length > 0)
+    ) {
       highlight = true;
     }
-    if ((!isColumn && selectedRow === index) || (isColumn && selectedCol === index)) {
+    if (
+      (!isColumn && selectedRow === index) ||
+      (isColumn && selectedCol === index)
+    ) {
       highlight = true;
       highlightColor = "#107C41";
       highlightText = "#FFFFFF";
       isBold = true;
     }
-    if ((this.selMgr.getSelectedColumns().includes(index) && isColumn) || (this.selMgr.getSelectedRows().includes(index) && !isColumn)) {
+    if (
+      (this.selMgr.getSelectedColumns().includes(index) && isColumn) ||
+      (this.selMgr.getSelectedRows().includes(index) && !isColumn)
+    ) {
       highlight = true;
       highlightColor = "#107C41";
       highlightText = "#FFFFFF";
       isBold = true;
       if (!isColumn) {
-        
       }
     }
- 
-    if (!isColumn && selectedCol !== null || (isColumn && this.selMgr.getSelectedRows().length > 0)) {
+
+    if (
+      (!isColumn && selectedCol !== null) ||
+      (isColumn && this.selMgr.getSelectedRows().length > 0)
+    ) {
       highlight = true;
     }
     this.ctx.fillStyle = "#f3f6fb";
@@ -2303,7 +2558,6 @@ export class Grid {
     this.ctx.strokeRect(0, 0, this.rowHeaderWidth, HEADER_SIZE);
     // Check drag selection
     if (dragRect) {
-   
       const inRange = isColumn
         ? index >= dragRect.startCol && index <= dragRect.endCol
         : index >= dragRect.startRow && index <= dragRect.endRow;
@@ -2311,8 +2565,6 @@ export class Grid {
         highlight = true;
       }
     }
-  
-
 
     // Draw background
     if (highlight) {
@@ -2325,23 +2577,26 @@ export class Grid {
 
     // Draw borders
     ctx.strokeStyle = highlight ? "#107C41" : "#b7c6d5";
-    ctx.lineWidth = highlight ? 2 / dpr : 1 / dpr;
+    ctx.lineWidth = highlight ? 2 / dpr : 1 / dpr; // Always 1px
     ctx.beginPath();
 
     if (isColumn) {
-      ctx.moveTo(x+0.5, y + h +0.5);
-      ctx.lineTo(x + w, y + h +0.5);
+      // Bottom border
+      ctx.moveTo(x + 0.5, y + h + 0.5);
+      ctx.lineTo(x + w - 0.5, y + h + 0.5);
       if (!highlight) {
-        ctx.moveTo(x + 0.5, y);
-        ctx.lineTo(x, y + h);
+        // Left border
+        ctx.moveTo(x + 0.5, y + 0.5);
+        ctx.lineTo(x + 0.5, y + h + 0.5);
       }
     } else {
-
-      ctx.moveTo(x + w - 0.5, y);
-      ctx.lineTo(x + w - 0.5, y + h -0.5);
+      // Right border
+      ctx.moveTo(x + w - 0.5, y + 0.5);
+      ctx.lineTo(x + w - 0.5, y + h - 0.5);
       if (!highlight) {
-        ctx.moveTo(x, y + h - 0.5);
-        ctx.lineTo(x + w, y + h - 0.5);
+        // Bottom border
+        ctx.moveTo(x + 0.5, y + h - 0.5);
+        ctx.lineTo(x + w - 0.5, y + h - 0.5);
       }
     }
     ctx.stroke();
@@ -2435,8 +2690,8 @@ export class Grid {
    * Computes the selection stats.
    */
   private computeSelectionStats(): void {
-    // Drag rectangle (range selection)
-   
+    
+
     // Whole row selection
     const selectedRows = this.selMgr.getSelectedRows();
     if (selectedRows.length > 0) {
@@ -2485,7 +2740,7 @@ export class Grid {
       }
     }
     // Whole column selection
-    const selectedCol = this.selMgr.getSelectedCol(); 
+    const selectedCol = this.selMgr.getSelectedCol();
     if (selectedCol !== null) {
       const col: (string | number)[] = [];
       for (let r = 0; r < ROWS; r++) {
@@ -2578,7 +2833,9 @@ export class Grid {
     if (selectedCells.length === 0) return;
 
     // Create and execute command for each selected cell
-    const commands = selectedCells.map(cell => new FontSizeCommand(cell, newSize));
+    const commands = selectedCells.map(
+      (cell) => new FontSizeCommand(cell, newSize)
+    );
     const composite = new CompositeCommand(commands);
     this.commandManager.execute(composite);
 
@@ -2593,7 +2850,7 @@ export class Grid {
     const selectedCells = this.getSelectedCells();
     if (selectedCells.length === 0) return;
 
-    const commands = selectedCells.map(cell => new BoldCommand(cell, isBold));
+    const commands = selectedCells.map((cell) => new BoldCommand(cell, isBold));
     const composite = new CompositeCommand(commands);
     this.commandManager.execute(composite);
 
@@ -2610,7 +2867,9 @@ export class Grid {
     if (selectedCells.length === 0) return;
 
     // Create and execute command for each selected cell
-    const commands = selectedCells.map(cell => new ItalicCommand(cell, isItalic));
+    const commands = selectedCells.map(
+      (cell) => new ItalicCommand(cell, isItalic)
+    );
     const composite = new CompositeCommand(commands);
     this.commandManager.execute(composite);
 
@@ -2626,7 +2885,6 @@ export class Grid {
     const cells: Cell[] = [];
 
     // Check for drag selection first
-   
 
     // Check for selected columns array (for column header selections when not dragging)
     const selectedColumns = this.selMgr.getSelectedColumns();
@@ -2679,37 +2937,6 @@ export class Grid {
     }
     const rect = this.selMgr.getDragRect();
     if (rect) {
-    // console.log("getSelectedCells drag rect:", rect);
-    //   console.log("isColHeaderDrag:", this.isColHeaderDrag);
-    //   console.log("isRowHeaderDrag:", this.isRowHeaderDrag);
-      
-      // Check if this is a column header drag
-      // if (this.isColHeaderDrag) {
-      //   console.log("Column header drag detected");
-      //   const selectedColumns = this.selMgr.getSelectedColumns();
-      //   for (const col of selectedColumns) {
-      //     for (let r = 0; r < ROWS; r++) {
-      //       const cell = this.getCellIfExists(r, col);
-      //       if (cell) cells.push(cell);
-      //     }
-      //   }
-      //   return cells;
-      // }
-      
-      // Check if this is a row header drag
-      // if (this.isRowHeaderDrag) {
-      //   console.log("Row header drag detected");
-      //   for (let r = rect.startRow; r <= rect.endRow; r++) {
-      //     for (let c = 0; c < COLS; c++) {
-      //       const cell = this.getCellIfExists(r, c);
-      //       if (cell) cells.push(cell);
-      //     }
-      //   }
-      //   return cells;
-      // }
-      
-      // Normal rectangle selection (data area drag)
-      // console.log("Data area drag detected");
       for (let r = rect.startRow; r <= rect.endRow; r++) {
         for (let c = rect.startCol; c <= rect.endCol; c++) {
           const cell = this.getCellIfExists(r, c);
@@ -2757,7 +2984,8 @@ export class Grid {
       (cell) => cell.getIsItalic() === firstCell.getIsItalic()
     );
     const allSameAlign = selectedCells.every(
-      (cell) => cell.getAlignment && cell.getAlignment() === firstCell.getAlignment()
+      (cell) =>
+        cell.getAlignment && cell.getAlignment() === firstCell.getAlignment()
     );
 
     // Update toolbar state
@@ -2797,9 +3025,18 @@ export class Grid {
     }
 
     if (allSameAlign) {
-      alignLeftBtn?.classList.toggle("active", firstCell.getAlignment() === "left");
-      alignCenterBtn?.classList.toggle("active", firstCell.getAlignment() === "center");
-      alignRightBtn?.classList.toggle("active", firstCell.getAlignment() === "right");
+      alignLeftBtn?.classList.toggle(
+        "active",
+        firstCell.getAlignment() === "left"
+      );
+      alignCenterBtn?.classList.toggle(
+        "active",
+        firstCell.getAlignment() === "center"
+      );
+      alignRightBtn?.classList.toggle(
+        "active",
+        firstCell.getAlignment() === "right"
+      );
     } else {
       alignLeftBtn?.classList.remove("active");
       alignCenterBtn?.classList.remove("active");
@@ -2834,13 +3071,13 @@ export class Grid {
     if (this.animationId) {
       cancelAnimationFrame(this.animationId);
     }
-    
+
     const animate = () => {
       this.dashOffset += 1;
       this.scheduleRender();
       this.animationId = requestAnimationFrame(animate);
     };
-    
+
     this.animationId = requestAnimationFrame(animate);
   }
 
@@ -2852,7 +3089,8 @@ export class Grid {
       cancelAnimationFrame(this.animationId);
       this.animationId = null;
     }
-    this.formulaRange = null;
+    this.copyRange = null;
+
     this.scheduleRender();
   }
 
@@ -2875,16 +3113,34 @@ export class Grid {
     this.scheduleRender();
     this.computeSelectionStats();
   }
-
-  private applyAlignmentToSelection(alignment: 'left' | 'center' | 'right'): void {
+  /**
+   * Applies the alignment to the selection.
+   * @param alignment the alignment to apply
+   */
+  private applyAlignmentToSelection(
+    alignment: "left" | "center" | "right"
+  ): void {
     const selectedCells = this.getSelectedCells();
-    
+
     if (selectedCells.length === 0) return;
     // console.log('Applying alignment', alignment, 'to cells:', selectedCells.map(cell => ({row: cell.row, col: cell.col, current: cell.getAlignment()})));
-    const commands = selectedCells.map(cell => new AlignmentCommand(cell, alignment));
+    const commands = selectedCells.map(
+      (cell) => new AlignmentCommand(cell, alignment)
+    );
     const composite = new CompositeCommand(commands);
     this.commandManager.execute(composite);
     this.updateToolbarState();
     this.scheduleRender();
   }
+
+  // Marching ants for copy and paste
+  private copyRange: {
+    startRow: number;
+    startCol: number;
+    endRow: number;
+    endCol: number;
+  } | null = null;
+  // private pasteRange: { startRow: number; startCol: number; endRow: number; endCol: number } | null = null;
+
+  // Add this method to the class:
 }
